@@ -201,6 +201,10 @@ public class TMLPageWebSocket extends AbstractWebSocket implements WebSocket {
         }
     }
 
+    public void firePortletEvent(String eventName) throws WGException {
+    	firePortletEvent(eventName, null);
+    }
+    
     @SuppressWarnings("unchecked")
     @Override
     public void firePortletEvent(String eventName, Map<String, Object> params) throws WGException {
@@ -247,9 +251,15 @@ public class TMLPageWebSocket extends AbstractWebSocket implements WebSocket {
     
 
     @OnMessage
+    public void receiveMessage(String messageStr) {
+    	JsonObject result = handleClientTextMessage(WGA.get(getSession(), _httpSession), _pageConnection.getDbKey(), messageStr);
+        doSend(result, true);
+    }
+    /*
     public String receiveMessage(String messageStr) {
         return handleClientTextMessage(WGA.get(getSession(), _httpSession), _pageConnection.getDbKey(), messageStr);
     }
+    */
     
 
     @Override
@@ -261,6 +271,9 @@ public class TMLPageWebSocket extends AbstractWebSocket implements WebSocket {
         return _pageConnection;
     }
     
+    public String getWindowId() {
+        return _pageConnection.getWindowId();
+    }
     
 }
 

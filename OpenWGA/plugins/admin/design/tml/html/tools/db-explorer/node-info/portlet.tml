@@ -94,10 +94,12 @@
 	_key = a.join(":");
 	_wgakey = _type + "/" + a.join("/");
 	
+	//console.log(_type, "_key:", _key, "_wgakey:", _wgakey);
+	
 	// check if document still exists
 	_exists = false;
 	if(_type=='root' || _type=="cssjs" || _type=="tml" || _type=="filecontainer")
-		_exists = true;
+		_exists = _key;
 	else if(_key){	
 		if(db(option("key")).getDocumentByKey(_wgakey))
 			_exists = true;

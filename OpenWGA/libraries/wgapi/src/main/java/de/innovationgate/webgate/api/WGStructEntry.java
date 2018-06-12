@@ -54,6 +54,11 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
      */
     public static final String EDITORS_INHERIT_AND_REDUCE = "#inherit-and-reduce";
 
+    /**
+     * extension data field which stores the page sequence for this document in CS Versions > 5
+     */
+    public static final String EXT_PAGE_SEQUENCE = "page-sequence";
+    
     public class SessionData {
         
         private boolean _performUserRightsTestsOnSave = true;
@@ -315,8 +320,6 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
     public static final MetaInfo METAINFO_KEY = new MetaInfo(META_KEY, Object.class, null);
     
     public static final String META_TITLE = "TITLE";
-    
-    public static final String META_UNIQUENAME = "UNIQUENAME";
     public static final MetaInfo METAINFO_TITLE = new MetaInfo(META_TITLE, String.class, "");
     static {
     	METAINFO_TITLE.setInputConverter(TITLE_CONVERTER);
@@ -363,6 +366,7 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
     public static final String META_WORKFLOW_NAME = "OVERRIDE_WORKFLOW";
     public static final MetaInfo METAINFO_WORKFLOW_NAME = new MetaInfo(META_WORKFLOW_NAME, String.class, null);
     
+    public static final String META_UNIQUENAME = "UNIQUENAME";
     public static final MetaInfo METAINFO_UNIQUENAME = new MetaInfo(META_UNIQUENAME, String.class, null);
     static  {
         METAINFO_UNIQUENAME.setMinCsVersion(WGDatabase.CSVERSION_WGA5);
@@ -394,6 +398,9 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
         METAINFO_ALLOWED_CHILDTYPES.setMultiple(true);
         METAINFO_ALLOWED_CHILDTYPES.setExtdata(true);
     }
+
+    public static final String META_PAGESEQUENCE = "PAGESEQUENCE";
+    public static final MetaInfo METAINFO_PAGESEQUENCE = new MetaInfo(META_PAGESEQUENCE, Long.class, 0L);
 
     /**
      * No content has yet been fetched for this struct entry.
@@ -1533,6 +1540,28 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
         return testEditPageHierarchyRights();
     }
     
+    /**
+     * Test if user may create content in a given language
+     * @param lang
+     * @return true if content creation is allowed
+     * @throws WGAPIException
+     */
+    public boolean mayCreateContent(WGLanguage lang) throws WGAPIException{
+        // Test for read access. Without read access no write access (not even for managers)
+        WGDocument prohibitingDoc = getReadProtectionCause();
+        if (prohibitingDoc != null) {
+            return false;
+        }
+        
+        // Ask PageRightsFilter first end stop other checks if ALLOWED_SKIP_DEFAULT_CHECKS
+        PageRightsFilter.Right right = getDatabase().getPageRightsFilter().mayEditContent(this, getDatabase().getSessionContext().getUserAccess(), lang);
+        if (right == Right.DENIED) 
+        	return false;
+        else if (right == Right.ALLOWED_SKIP_DEFAULT_CHECKS)
+        	return true;
+        
+    	return lang.mayCreateContent() && mayEditPage();
+    }
     
     /**
      * Tests if the current user generally may edit this struct entry and it's contents, according to the hierarchical access rights. If so the method exits normally. Otherwise an rexception is thrown.
@@ -1577,59 +1606,55 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
             return prohibitingDoc;
         }
         
+        // test if user has at least chief editor rights, if so grant access in anyway.
+        if (this.getDatabase().getSessionContext().getAccessLevel() >= WGDatabase.ACCESSLEVEL_CHIEF_EDITOR) {
+            return null;
+        }
+
+        // Ask PageRightsFilter first end stop other checks if ALLOWED_SKIP_DEFAULT_CHECKS
         PageRightsFilter.Right editRight = getDatabase().getPageRightsFilter().mayEditPage(this, getDatabase().getSessionContext().getUserAccess());
-        if (editRight ==  Right.DENIED) {
-            throw new WGAuthorisationException("The page rights filter denies editing this page", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGERIGHTSFILTER);
+        if (editRight == PageRightsFilter.Right.DENIED) 
+        	return this;
+        else if (editRight == PageRightsFilter.Right.ALLOWED_SKIP_DEFAULT_CHECKS)
+        	return null;
+
+        // Retrieve the list of editors. If we have retrieved backend data we prefer that one
+        // bc. the current data may have been modified
+        List<String> editors = getEffectivePageEditors();
+        
+        // Case 1: Anyone allowed
+        if (WGDatabase.anyoneAllowed(editors, false)) {
+            return null;
+        }
+
+        // Case 2: regular struct-document - no editor is assigned, so lookup editors from parent-Struct
+        if (editors.isEmpty() || (editors.size() == 1 && (editors.get(0) == null || editors.get(0).toString().equals("")))) {
+            return testInheritedEditRights();
         }
         
-        if (editRight != Right.ALLOWED_SKIP_DEFAULT_CHECKS) {
-            
-            // test if user has at least chief editor rights, if so grant access in anyway.
-            if (this.getDatabase().getSessionContext().getAccessLevel() >= WGDatabase.ACCESSLEVEL_CHIEF_EDITOR) {
-                return null;
-            }
-            
-    
-            // Retrieve the list of editors. If we have retrieved backend data we prefer that one
-            // bc. the current data may have been modified
-            List<String> editors = getEffectivePageEditors();
-            
-            // Case 1: Anyone allowed
-            if (WGDatabase.anyoneAllowed(editors, false)) {
-                return null;
-            }
-    
-            // Case 2: regular struct-document - no editor is assigned, so lookup
-            // editors from parent-Struct
-            if (editors.isEmpty() || (editors.size() == 1 && (editors.get(0) == null || editors.get(0).toString().equals("")))) {
-                return testInheritedEditRights();
-            }
-            
-            // Case 3: nobody is allowed to edit children of this struct.
-            if (editors.size() == 1&& editors.get(0).toString().equals(WGStructEntry.NOONE_ALLOWED)) {
-                return this;
-            }
-            
-            // Case 4: A list of users is given. If the user is not contained in the list he may not edit
-            
-            // The list may choose to inherit parent rights and reduce them
-            if (EDITORS_INHERIT_AND_REDUCE.equals(editors.get(0))) {
-                WGDocument cause = testInheritedEditRights();
-                if (cause != null) {
-                    return cause;
-                }
-                editors = new ArrayList<String>(editors);
-                editors.remove(0);
-            }
-            
-            if  (!this.getDatabase().isMemberOfUserList(editors)) {
-                return this;
-            }
+        // Case 3: nobody is allowed to edit children of this struct.
+        if (editors.size() == 1 && editors.get(0).toString().equals(WGStructEntry.NOONE_ALLOWED)) {
+            return this;
+        }
         
-       }
+        // Case 4: A list of users is given. If the user is not contained in the list he may not edit
+        
+        // The list may choose to inherit parent rights and reduce them
+        if (EDITORS_INHERIT_AND_REDUCE.equals(editors.get(0))) {
+            WGDocument cause = testInheritedEditRights();
+            if (cause != null) {
+                return cause;
+            }
+            editors = new ArrayList<String>(editors);
+            editors.remove(0);
+        }
+        
+        if  (!this.getDatabase().isMemberOfUserList(editors)) {
+            return this;
+        }
 
-       // Case 5: everything is cool, user may create children :-)
-       return null;
+        // everything is cool, user edit Entry
+        return null;
         
     }
     
@@ -1789,7 +1814,7 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
      * Tests if the current user may edit child entries and their contents.
      * 
      * @return null, if the user may edit. If not, the WGStructEntry or WGArea
-     *         object ist returned that denies editing access
+     *         object is returned that denies editing access
      * @deprecated Because of counter-intuitive return values. Use {@link #mayEditChildPages()}
      * @throws WGAPIException 
      */
@@ -1838,7 +1863,8 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
         
         PageRightsFilter.Right editRight = getDatabase().getPageRightsFilter().mayEditChildPages(this, getDatabase().getSessionContext().getUserAccess());
         if (editRight ==  Right.DENIED) {
-            throw new WGAuthorisationException("The page rights filter denies editing child pages of this page", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGERIGHTSFILTER);
+        	return this;
+            //throw new WGAuthorisationException("The page rights filter denies editing child pages of this page", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGERIGHTSFILTER);
         }
         
         if (editRight != Right.ALLOWED_SKIP_DEFAULT_CHECKS) {
@@ -2057,6 +2083,13 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
 
     }
 
+    public boolean mayPushExtData(String extName){
+    	if(extName.equals(EXT_PAGE_SEQUENCE))
+    		return false;
+    	return super.mayPushExtData(extName);
+    }
+
+    
     /**
      * Initializes empty published fields on page level by the first released content versions' creation date
      * This is a tool method that can be used to init given published field from non CS5 sources, on migration for example.
@@ -2201,6 +2234,14 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
         // Test rights to edit this entry and content
         if (getContentType() != null && !getContentType().mayCreateContent()) {
             throw new WGAuthorisationException("You are not allowed to delete documents of content type '" + getContentType().getName() + "'", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_CONTENTTYPE, getContentType());
+        }
+        
+        // Test languages
+        for(WGContent content: getAllContent(true)){
+        	WGLanguage lang = content.getLanguage(); 
+        	if(!lang.mayCreateContent(this)){
+        		throw new WGAuthorisationException("You are not allowed to delete documents of language '" + lang.getName() + "'", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_LANGUAGE, lang);
+        	}
         }
         
         WGDocument cause = testEditPageHierarchyRights();
@@ -2546,12 +2587,12 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
         return getSiblingEntries().getIndexOfEntry(this);
     }
 
-    public Class getChildNodeType() {
+    public Class<?> getChildNodeType() {
         return WGStructEntry.class;
     }
 
-    public List getChildNodes() throws WGAPIException {
-        return new ArrayList(getChildEntries());
+    public List<PageHierarchyNode> getChildNodes() throws WGAPIException {
+        return new ArrayList<PageHierarchyNode>(getChildEntries());
     }
     
     @Override
@@ -2786,7 +2827,7 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
     }
     
     /**
-     * Returns the list of currently effective page editors.. These may differ from the currently set editors in a yet unsaved document.
+     * Returns the list of currently effective page editors. These may differ from the currently set editors in a yet unsaved document.
      * @throws WGAPIException
      */
     public List<String> getEffectivePageEditors() throws WGAPIException {
@@ -2800,7 +2841,7 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
     }
     
     /**
-     * Returns the list of currently effective child editors.. These may differ from the currently set editors in a yet unsaved document.
+     * Returns the list of currently effective child editors. These may differ from the currently set editors in a yet unsaved document.
      * @throws WGAPIException
      */
     public List<String> getEffectiveChildEditors() throws WGAPIException {
@@ -3022,5 +3063,15 @@ public class WGStructEntry extends WGDocument implements Comparable<WGStructEntr
         return getCache().getReleasedContentCache();
     }
 
-    
+    public long getPageSequence() throws WGAPIException{
+    	return (long)getMetaData(META_PAGESEQUENCE);
+    }
+
+    public void createPageSequence() throws WGAPIException, InstantiationException, IllegalAccessException{
+    	createPageSequence(false);
+    }
+    public void createPageSequence(boolean forceCreate) throws WGAPIException, InstantiationException, IllegalAccessException{
+    	getDatabase().createPageSequence(this, forceCreate);
+    }
+
 }

@@ -15,6 +15,7 @@ import de.innovationgate.webgate.api.WGException;
 import de.innovationgate.webgate.api.WGFileContainer;
 import de.innovationgate.webgate.api.WGScriptModule;
 import de.innovationgate.wga.server.api.Design;
+import de.innovationgate.wga.server.api.WGA;
 import de.innovationgate.wgpublisher.WGACore;
 
 public class ResourceRef {
@@ -23,6 +24,7 @@ public class ResourceRef {
 	public static final String TYPE_CSS = "css";
 	public static final String TYPE_FILE = "file";
 	public static final String TYPE_STATIC = "static";
+	public static final String TYPE_TMLSCRIPT = "tmlscript";
 	
 	String _type;
 	String _db=null;
@@ -42,7 +44,11 @@ public class ResourceRef {
 		_path = StringUtils.join(path_parts, ":");
 				
 	}
-	
+
+	public ResourceRef(String path) throws WGException{
+		this(new ResourceRef(WGA.get().design(), TYPE_FILE), path);
+	}
+
 	public ResourceRef(ResourceRef parentref, String path) throws WGException {
 		String[] parts = path.split("\\s+", 3);
 		for(String part: parts){
@@ -88,11 +94,14 @@ public class ResourceRef {
 				
 	}
 	
-
+	/*
+	 * Returns the code "as is" - WITHOUT recursively calling postProcessors
+	 */
 	public String getCode() throws WGException, IOException{
 		switch (_type) {
 			case TYPE_CSS:
 			case TYPE_JS:
+			case TYPE_TMLSCRIPT:
 				WGScriptModule mod = (WGScriptModule)getDesignDocument();
 				return mod!=null ? mod.getCode() : null;
 	
@@ -111,15 +120,30 @@ public class ResourceRef {
 		}
 	}
 	
-	public String getJavaScriptCode() throws WGException, IOException{
+	/*
+	 * Returns the code recursively calling other postProcessors
+	 */
+	public String getJavaScriptCode(Boolean compress) throws WGException, IOException{
 		if(_type==TYPE_JS)
-			return _design.getJavaScriptCode();
+			return _design.getJavaScriptCode(compress);
 		else return getCode();
 	}
 
+	/*
+	 * Returns the code recursively calling other postProcessors
+	 */
 	public String getCSSCode() throws WGException, IOException{
 		if(_type==TYPE_CSS)
 			return _design.getCSSCode();
+		else return getCode();
+	}
+
+	/*
+	 * Returns the code recursively calling other postProcessors
+	 */
+	public String getTMLScriptCode(Boolean compress) throws WGException, IOException{
+		if(_type==TYPE_TMLSCRIPT)
+			return _design.getTMLScriptCode();
 		else return getCode();
 	}
 
@@ -132,6 +156,9 @@ public class ResourceRef {
 				case TYPE_JS:
 					return _design.getScriptModule(WGScriptModule.CODETYPE_JS);
 	
+				case TYPE_TMLSCRIPT:
+					return _design.getScriptModule(WGScriptModule.CODETYPE_TMLSCRIPT);
+
 				case TYPE_FILE:
 					return _design.getFileContainer();
 	

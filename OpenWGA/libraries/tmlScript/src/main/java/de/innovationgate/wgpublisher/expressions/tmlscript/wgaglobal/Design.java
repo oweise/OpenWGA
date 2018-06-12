@@ -27,7 +27,9 @@ package de.innovationgate.wgpublisher.expressions.tmlscript.wgaglobal;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.PropertyResourceBundle;
 
 import de.innovationgate.ext.org.mozilla.javascript.Context;
@@ -171,7 +173,7 @@ public class Design extends ScriptableObject implements Wrapper {
                 String dbKey = currentAction.getModuleDatabase();
                 WGDatabase designDB = tmlContext.db(dbKey);
                 if (designDB == null || !designDB.isSessionOpen()) {
-                    throw new IllegalArgumentException("Cannot determine design of object");
+                    throw new IllegalArgumentException("Cannot determine design of " + dbKey);
                 }
                 _apiDesign = WGA.get(tmlContext).design(tmlContext.getDesignContext().createContextDelegate((WGDatabase) designDB, currentAction.getModuleName()));
              
@@ -214,8 +216,14 @@ public class Design extends ScriptableObject implements Wrapper {
     public static String label(Context cx, Scriptable thisObj, java.lang.Object[] args, Function funObj) throws JavaScriptException, WGException {
         
         Design design = unwrapThisObj(thisObj);
-        Arguments parsedArgs = WGAGlobal._localLabelVarargs.parse(args);
         
+        if(args.length==2 && args[1] instanceof NativeObject){
+        	// called as label(key, {config_object})
+        	// ignore this fucking varAgrs parsing ...
+        	return design._apiDesign.label((String) args[0], (NativeObject)args[1]);
+        }
+        
+        Arguments parsedArgs = WGAGlobal._localLabelVarargs.parse(args);        
         return design._apiDesign.label((String) parsedArgs.get("container"), (String) parsedArgs.get("file"), (String) parsedArgs.get("key"), (List) parsedArgs.get("params")); 
         
     }
@@ -356,6 +364,9 @@ public class Design extends ScriptableObject implements Wrapper {
         // Redirecting to standard object definition functionality.
         else {
             TMLAction objectDefinition = loadObjectDefinitionAction(design, WGAGlobal.fetchInitialContext(cx), (String) definition);
+            if(objectDefinition==null){
+            	throw(new WGException("Unable to load Script module '" + (String) definition + "'"));
+            }
             TMLScriptObjectParentScope scope = new TMLScriptLegacyObjectParentScope(context.getwgacore(), objectDefinition, context.getDesignDBKey(), context.designdb().getSessionContext().isMasterSession());
             return runtime.getObjectCreatorManager().getObjectCreator(WGA.get(context), (RhinoContext) cx, objectDefinition, scope).createManagedObject((RhinoContext) cx, scope, rootScope.getWgaGlobal().getWga(), null, null, parsedArgs.getOverflowArgs().toArray());
         }

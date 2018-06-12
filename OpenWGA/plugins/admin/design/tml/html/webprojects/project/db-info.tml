@@ -34,6 +34,7 @@
 
 		_info={
 			lastChanged : (_wgadb.hasFeature(_wgadb.FEATURE_LASTCHANGED) && _wgadb.getLastChanged() != null ? _wgadb.getLastChanged() : "(Not supported)"),
+			revision: _wgadb.getRevision(),
 			isCs: _wgadb.hasFeature(_wgadb.FEATURE_FULLCONTENTFEATURES),
 			title : _wgadb.getTitle(),
 			uuid : _wgadb.getUUID(),
@@ -135,6 +136,10 @@
 		</tml:case>
 	</div>
 	<div class="clear"></div>
+
+	<label>Revision:</label>
+	<div class="data"><tml:script expression="_info.revision"/></div>
+	<div class="clear"></div>
 		
 	<label>Last Updated:</label>
 	<div class="data"><tml:script expression="_info.lastChanged + ' (' + (_info.monitorLastChange ? 'monitored' : 'not monitored') + ')'"/></div>
@@ -196,7 +201,12 @@
 		<div class="clear"></div>
 		
 		<label>Language Behaviour:</label>
-		<div class="data"><tml:script expression="_info.languageBehaviour"/></div>
+		<div class="data">
+			<tml:script>
+				var mod = DBM.getModuleDefinition("LanguageBehaviour", _info.languageBehaviour);
+				return (mod && mod.getTitle(DBM.locale)) || _info.languageBehaviour;
+			</tml:script>
+		</div>
 		<div class="clear"></div>
 		
 		<label>Multi Language Support:</label>
@@ -299,11 +309,12 @@
 	<legend>Effective Publisher Options</legend>
 
 	<tml:script>
+		_app = WGA.app(_wgadb);
 		_attributes = _wgadb.getAttributeNames();
 	</tml:script>	
 	<tml:foreach type="itemvalue" item="_attributes" currentvalue="_attribute">
 		<tml:script>
-			_value = _wgadb.getAttribute(_attribute)
+			_value = _app.getPublisherOption(_attribute)
 			_show = false;
 			if(typeof(_value) == "string")
 				_show = true;
@@ -314,7 +325,7 @@
 			_value = _value.toString();
 		</tml:script>
 		<tml:case istrue="_show">
-			<label><tml:item name="_attribute"/>:</label>
+			<label title="<tml:item name="_attribute"/>"><tml:item name="_attribute"/>:</label>
 			<div class="data">
 				<tml:item name="_value"/>
 			</div>

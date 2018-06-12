@@ -53,12 +53,19 @@
 					</tml:then>
 					<tml:else>
 						<h1>{%label:no-content.title%}</h1>
-						<tml:label key="no-content.message" param1="{TITLE}"/>
+						<tml:label key="no-content.message" param1="{TITLE}" param2="{_Database.getPreferedLanguage()}"/>
 					</tml:else>
 				</tml:if>
 				
 				<tml:script>
-					_contentlist=sortList(document.getAllContent(true), "status", "down");
+					// other versions
+					var contentlist = WGA.createList()
+					for(let doc in Iterator(document.getAllContent(document.mayEditPage()))){
+						if(doc.mayEditContent() || doc.getStatus()==doc.STATUS_RELEASE)
+							contentlist.add(doc);
+					}
+					_contentlist=WGA.sortList(contentlist, "status", "down");
+					_mayCreateContent = document.mayCreateContent(document.getDatabase().getLanguage(_Database.getPreferedLanguage()))
 				</tml:script>
 				<tml:case condition="!_contentlist.isEmpty()">
 					<hr>
@@ -74,12 +81,17 @@
 							<a href="<tml:script expression="contenturl('html', null, true)"/>">
 								<tml:label key="version"/> <tml:meta name="version"/> (<tml:meta name="modified"/>, <tml:meta name="languagetitle"/>)
 							</a>
-							<div style="float:right">
-								<button 
-									onclick="window.parent.BI.dialog.show('create-content', this, {structkey:'<tml:script>return document.getStructKey()</tml:script>',contentkey:'<tml:meta name="key"/>'});"
-								><tml:label key="no-content.new-version-from-this"/></button>
-							</div>
-							<div style="clear:right"></div>
+							<tml:case condition="_mayCreateContent">
+								<div style="float:right">
+									<button 
+										onclick="window.parent.BI.dialog.show('create-content', this, {
+											structkey:'<tml:script>return document.getStructKey()</tml:script>',
+											contentkey:'<tml:meta name="key"/>'
+										});"
+									><tml:label key="no-content.new-version-from-this"/></button>
+								</div>
+								<div style="clear:right"></div>
+							</tml:case>
 						</li>
 					</tml:foreach>
 					</ul>

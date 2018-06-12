@@ -25,6 +25,7 @@
 package de.innovationgate.webgate.api;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 import de.innovationgate.utils.PrefetchingIterator;
@@ -204,7 +205,16 @@ public class WGContentNavigator {
 
 	   	WGContent content = this.chooser.selectContentForPage(entry, !onlyPublished);    
         if (content != null && content.mayBePublished(!onlyPublished, displayType)) {
-            return content;
+
+    		// #00005189
+	        // Validto date in the past?
+    		// If not authoring mode isVisibleNow() is already checked in mayBePublished()  
+    		// BUT we may be in authoring mode here and may got a not released content.
+	        Date now = new Date();
+	        if (content.getValidTo() != null && content.getValidTo().before(now)) {
+	            return null;
+	        }
+	        return content;
         }
 	                    
 		return null;
@@ -577,6 +587,8 @@ public class WGContentNavigator {
 	 * @throws WGAPIException 
 	 */
 	public Integer getContentLevel(WGContent relContent) throws WGAPIException {
+		if(relContent.isDummy())
+			return 0;
 	    return relContent.getStructEntry().getLevel();
 	}
 	

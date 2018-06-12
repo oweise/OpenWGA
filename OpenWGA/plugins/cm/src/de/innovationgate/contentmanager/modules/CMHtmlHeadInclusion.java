@@ -28,10 +28,11 @@ package de.innovationgate.contentmanager.modules;
 import javax.servlet.ServletRequest;
 
 import de.innovationgate.utils.WGUtils;
-import de.innovationgate.webgate.api.WGAPIException;
 import de.innovationgate.webgate.api.WGContent;
 import de.innovationgate.webgate.api.WGException;
 import de.innovationgate.webgate.api.WGStructEntry;
+import de.innovationgate.wga.model.BrowsingSecurity;
+import de.innovationgate.wga.server.api.WGA;
 import de.innovationgate.wgpublisher.WGACore;
 import de.innovationgate.wgpublisher.webtml.utils.HTMLHeadInclusion;
 import de.innovationgate.wgpublisher.webtml.utils.TMLContext;
@@ -40,7 +41,19 @@ public class CMHtmlHeadInclusion implements HTMLHeadInclusion {
 
     public CharSequence processInclusion(TMLContext context) {
         // Determine, which (if any) document can be edited in this request
-        if (context.isbrowserinterface()) {
+
+		Boolean isAuthoringMode=false;
+		try {
+			WGACore wgacore = WGA.get().getCore();
+			if(wgacore.getDispatcher().getBrowsingSecurity(context.content().getDatabase())>BrowsingSecurity.NO_AUTHORING
+					&& context.isbrowserinterface()
+				){
+				isAuthoringMode=true;
+			}
+				
+		} catch (WGException e) {}
+    	
+        if (isAuthoringMode){
 
         	StringBuffer result = new StringBuffer();
         	WGContent content;
@@ -50,16 +63,22 @@ public class CMHtmlHeadInclusion implements HTMLHeadInclusion {
             	content = context.content();
         		structentry = content.getStructEntry();
 
+                String dbkey = content.getDatabase().getDbReference();
+                String prefLanguage = content.getLanguage().getName();
+                context.getEnvironment().getPageContext().getSession().setAttribute("AFW."+dbkey+".PreferredLanguage", prefLanguage);
+
+                context.getEnvironment().getPageContext().getSession().setAttribute("CM.currentContextPath", context.getpath());
+
         		ServletRequest request = context.getEnvironment().getPageContext().getRequest();
-        		if(request.getParameter("$clean")!=null 
+        		if(request.getParameter(WGACore.URL_PARAM_CLEAN)!=null 
         				|| (content.hasCompleteRelationships() && content.getStructEntry().getArea().getName().equals("$trash"))
         		)
         			request.removeAttribute(WGACore.ATTRIB_EDITDOCUMENT);
         		
     			result.append("\n<link rel=\"stylesheet\" type=\"text/css\" href=\"" + 
-						context.fileurl("plugin-wga-app-framework", "cms", "bi.css") +
+						WGA.get().design("plugin-contentmanager").resolve("bi-style-injection").scriptURL("css") +
 						"\">");
-				result.append("\n<script id=\"wga-cm-contentinfo\" type=\"text/javascript\">");
+				result.append("\n<script id=\"wga-cm-contentinfo\">");
 	        	result.append("\nWGA.contentinfo={");
 	        	result.append("\n\tdbkey:\"" + content.getDatabase().getDbReference() + "\"");
 	    		if(!content.isDummy()){
@@ -71,8 +90,10 @@ public class CMHtmlHeadInclusion implements HTMLHeadInclusion {
 	    			result.append("\n\tlanguage:\"" + content.getLanguage().getName() + "\"");
 	    		}
 	    		result.append("\n};");
-	    		result.append("\nWGA.CMM={sections:{},hasSections:false}");
 	    		result.append("\n</script>\n");
+	    		result.append("\n<script>");
+	    		result.append("WGA.CMM={sections:{},hasSections:false}");
+	    		result.append("</script>\n");
         	
         	} catch (WGException e) {
 				// TODO Auto-generated catch block

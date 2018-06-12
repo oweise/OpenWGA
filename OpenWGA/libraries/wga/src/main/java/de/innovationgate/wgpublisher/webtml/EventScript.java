@@ -193,18 +193,15 @@ public class EventScript extends ActionBase {
         
         // Register as client-side listener for this event
         StringBuffer eventReg = new StringBuffer();
-        eventReg.append("<script type=\"text/javascript\">\n");
+        eventReg.append("<script>\n");
         writePortletEventRegistration(eventReg, action, getActionCallParameters(), isKeepParamsOnAJAX(), getOnevent());
         eventReg.append("</script>\n");
         setSuffix(eventReg.toString());
-        
         
     }
 
     private void executeEventScript() {
         
-        Status status = (Status) getStatus();
-        de.innovationgate.webgate.api.WGContent content = this.getTMLContext().content();
         ExpressionEngine engine;
         engine = ExpressionEngineFactory.getTMLScriptEngine();
         String expr = this.getResultString(false);

@@ -97,8 +97,6 @@ import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
-import javax.servlet.http.HttpSessionEvent;
-import javax.servlet.http.HttpSessionListener;
 import javax.servlet.jsp.PageContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.parsers.ParserConfigurationException;
@@ -121,7 +119,6 @@ import org.dom4j.DocumentHelper;
 import org.dom4j.Element;
 import org.dom4j.io.OutputFormat;
 import org.dom4j.io.XMLWriter;
-import org.hsqldb.jdbcDriver;
 import org.quartz.SchedulerException;
 import org.quartz.impl.DirectSchedulerFactory;
 import org.quartz.simpl.RAMJobStore;
@@ -161,8 +158,6 @@ import de.innovationgate.utils.cache.EHCacheCore;
 import de.innovationgate.utils.net.IPAddress;
 import de.innovationgate.utils.net.IPRestriction;
 import de.innovationgate.utils.net.IPs;
-import de.innovationgate.utils.net.IPv4Address;
-import de.innovationgate.utils.net.IPv4Restriction;
 import de.innovationgate.utils.security.HashedPassword;
 import de.innovationgate.utils.security.HashingException;
 import de.innovationgate.utils.security.SHA1HashingScheme;
@@ -183,6 +178,7 @@ import de.innovationgate.webgate.api.WGDocument;
 import de.innovationgate.webgate.api.WGException;
 import de.innovationgate.webgate.api.WGFactory;
 import de.innovationgate.webgate.api.WGFileAnnotator;
+import de.innovationgate.webgate.api.WGFileConverter;
 import de.innovationgate.webgate.api.WGHierarchicalDatabase;
 import de.innovationgate.webgate.api.WGHierarchicalDatabaseCoreListener;
 import de.innovationgate.webgate.api.WGIllegalArgumentException;
@@ -298,6 +294,7 @@ import de.innovationgate.wgpublisher.expressions.tmlscript.RhinoExpressionEngine
 import de.innovationgate.wgpublisher.expressions.tmlscript.TMLScriptAppGlobalRegistry;
 import de.innovationgate.wgpublisher.expressions.tmlscript.TMLScriptGlobal;
 import de.innovationgate.wgpublisher.expressions.tmlscript.TMLScriptGlobalRegistry;
+import de.innovationgate.wgpublisher.files.ImageFileConverter;
 import de.innovationgate.wgpublisher.files.derivates.FileDerivateManager;
 import de.innovationgate.wgpublisher.filter.WGAFilter;
 import de.innovationgate.wgpublisher.filter.WGAFilterConfig;
@@ -370,7 +367,6 @@ import de.innovationgate.wgpublisher.vlink.VirtualLinkResolver;
 import de.innovationgate.wgpublisher.vlink.VirtualLinkTarget;
 import de.innovationgate.wgpublisher.websockets.IndependentWebSocketManager;
 import de.innovationgate.wgpublisher.websockets.PageConnectionManager;
-import de.innovationgate.wgpublisher.webtml.init.WebTMLEnvironmentBuilder;
 import de.innovationgate.wgpublisher.webtml.portlet.TMLPortletState;
 import de.innovationgate.wgpublisher.webtml.utils.CRLFEncoder;
 import de.innovationgate.wgpublisher.webtml.utils.FlagAwareFormatter;
@@ -408,6 +404,8 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
         URLENCODER_PATH_PART_CHARACTERS.clear('+');
         URLENCODER_PATH_PART_CHARACTERS.clear('%');
     }
+    
+    private WGFileConverter _fileConverter =  new ImageFileConverter();
     
     public static class UpdateConfigOccasion implements ProblemOccasion {
 
@@ -1183,6 +1181,8 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
     public static final String LANGUAGEBEHAVIOUR_MAINCONTENT = "maincontent";
     public static final String LANGUAGEBEHAVIOUR_BROWSER = "browser";
 
+    public static final String URL_PARAM_CLEAN = "$clean";
+    
     private static DynamicClassLoadingChain libraryClassLoadingChain;
 
     private EventManager _eventManager;
@@ -1221,8 +1221,8 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
             return false;
         }
         else {
-            DBLoginInfo loginInfo = this.getSessionLogins(session).get(db.getAttribute(WGACore.DBATTRIB_DOMAIN));
-            return (loginInfo == null);
+            DBLoginInfo loginInfo = getSessionLogins(session).get(db.getAttribute(WGACore.DBATTRIB_DOMAIN));
+            return (loginInfo == null || loginInfo.isAnonymous());
         }
 
     }
@@ -1458,7 +1458,7 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
         } 
         
         // Requestinfo based login
-        else if ((!forceRegular || forceRequestBased) && db.getAuthenticationModule() != null && db.getAuthenticationModule() instanceof RequestBasedAuthenticationModule) {
+        else if (request != null && (!forceRegular || forceRequestBased) && db.getAuthenticationModule() != null && db.getAuthenticationModule() instanceof RequestBasedAuthenticationModule) {
             return openContentDBRequestBased(db, request, accessFilter);
         }
         
@@ -1490,7 +1490,7 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
                             }
                         }
                         if (tokenCookie != null) {
-                            db.openSession(WGDatabase.SESSIONTOKEN_USER, tokenCookie.getValue(), accessFilter);
+                            db.openSession(WGDatabase.SESSIONTOKEN_USER, tokenCookie.getValue(), accessFilter, request);
                             if (db.isSessionOpen()) {
                                 // CONSIDERED HARMFUL: Session tokens may
                                 // expire. Safer to always retrieve "fresh" from
@@ -1515,7 +1515,7 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
                         db.openSession();
                     }
                     else {
-                        db.openSession(hintDB.getSessionContext().getUser(), hintDB.getSessionContext().getPassword(), accessFilter);
+                        db.openSession(hintDB.getSessionContext().getUser(), hintDB.getSessionContext().getPassword(), accessFilter, request);
                     }
                     if (db.isSessionOpen()) {
                         return prepareDB(db, request);
@@ -1523,13 +1523,13 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
                     
                 }
 
-                db.openSession(WGDatabase.ANONYMOUS_USER, null);
+                db.openSession(WGDatabase.ANONYMOUS_USER, null, null, request);
                 return prepareDB(db, request);
             }
 
             // Try to login by previously stored domain-specific login
             if (sessionLoginInfo != null && !WGDatabase.ANONYMOUS_USER.equals(sessionLoginInfo.getUserName())) {
-                int accessLevel = db.openSession(sessionLoginInfo.getUserName(), sessionLoginInfo.getCredentials(), accessFilter);
+                int accessLevel = db.openSession(sessionLoginInfo.getUserName(), sessionLoginInfo.getCredentials(), accessFilter, request);
                 if (accessLevel > WGDatabase.ACCESSLEVEL_NOTLOGGEDIN) {
                     return prepareDB(db, request);
                 }
@@ -1552,14 +1552,14 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
 
             // Anonymous login, if nothing else applies. CANNOT BE STORED, bc.
             // Sessionlogins may suddenly be available without notice
-            db.openSession(WGDatabase.ANONYMOUS_USER, null, accessFilter);
+            db.openSession(WGDatabase.ANONYMOUS_USER, null, accessFilter, request);
             return prepareDB(db, request);
         }
     }
 
     /**
      * opens a content db based upon request.getRemoteUser and request.getUserPrincipal()
-     * if request.getRemoteUser is 'null', WGDatabase.UNKNOWN_REMOTE_USER is given to the authmodule
+     * if request.getRemoteUser is 'null' and request.getUserPrincipal()!=null, WGDatabase.UNKNOWN_REMOTE_USER is given to the authmodule
      * @param db
      * @param request
      * @return
@@ -1572,13 +1572,13 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
         }           
         
         String user = request.getRemoteUser();
+        Principal credentials = request.getUserPrincipal();
+
         if (user == null) {
-        	user = WGDatabase.UNKNOWN_REMOTE_USER;        	
+        	user = credentials==null ? WGDatabase.ANONYMOUS_USER : WGDatabase.UNKNOWN_REMOTE_USER; 
         }
         
-        Principal credentials = request.getUserPrincipal();
-        
-        db.openSession(user, credentials, accessFilter);
+      	db.openSession(user, credentials, accessFilter, request);
         
         if (db.isSessionOpen()) {
             updateLoginInfo(db, request, DBLoginInfo.AuthType.REQUEST);
@@ -1586,8 +1586,6 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
         
         return prepareDB(db, request);
 	}
-
-
 
     private WGDatabase openContentDBCertAuth(WGDatabase db, HttpServletRequest request, String accessFilter) throws WGException {
 
@@ -2225,6 +2223,9 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
                 
                 // Add file annotators
                 updateFileAnnotators(db);
+                
+                // add File Converter
+                db.setFileConverter(_fileConverter);
                 
                 // Do system container initialisations
                 if (scContext != null) {
@@ -3127,12 +3128,27 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
     }
     
     public void addAnalyzerMapping(String language, String analyzerClassName) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
-    	log.info("Registering analyzer mapping from language code '" + language + "' to '" + analyzerClassName + "'");
+    	log.info("Registering analyzer mapping for language code '" + language + "' to '" + analyzerClassName + "'");
     	Class analyzerClass = getLibraryLoader().loadClass(analyzerClassName);
         Analyzer analyzer = (Analyzer) analyzerClass.newInstance();
     	analyzerMappings.put(language.toLowerCase(), analyzer);
     }
+
+    public void addAnalyzerMapping(String language, Analyzer analyzer){
+    	log.info("Registering analyzer mapping for language code '" + language + "' to '" + analyzer.getClass().getName() + "'");
+    	analyzerMappings.put(language.toLowerCase(), analyzer);
+    }
     
+    public void removeAnalyzerMapping(String language){
+    	log.info("Unregistering analyzer mapping for language code '" + language);
+    	analyzerMappings.remove(language.toLowerCase());
+    }
+
+    public void removeAllAnalyzerMappings(){
+    	log.info("Unregistering all language specific analyzer mappings");
+    	analyzerMappings.clear();
+    }
+
     public void addFileHandlerMapping(String extension, String handlerClassName) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
     	log.info("Registering filehandler for extension '" + extension + "' - '" + handlerClassName + "'.");
     	Class fileHandlerClass = getLibraryLoader().loadClass(handlerClassName);
@@ -4272,16 +4288,6 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
             // fire pre connect event
             fireCoreEvent(new WGACoreEvent(WGACoreEvent.TYPE_STARTUP_PRE_CONNECT, null, this));
 
-            // connect plugins
-            updatePlugins(newDomainConfigs);            
-            
-            // Log most important available modules
-            logCategoryInfo("Modules", 1);
-            logModuleRegistry();
-            
-            // Some tasks that adapt options in registry to those configured in the WGA configuration
-            adaptConfigurationToRegistry(configMigrated);
-            
             // Create server option readers
             _variousServerOptionReader = getConfigOptionReader(new OptionFetcher() {
                 @Override
@@ -4296,6 +4302,16 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
                     return config.getServerOptions();
                 }
             }, WGAServerOptionsModuleType.class, ServicesCollector.class);
+            
+            // connect plugins
+            updatePlugins(newDomainConfigs);            
+            
+            // Log most important available modules
+            logCategoryInfo("Modules", 1);
+            logModuleRegistry();
+            
+            // Some tasks that adapt options in registry to those configured in the WGA configuration
+            adaptConfigurationToRegistry(configMigrated);
             
                         
             // init cluster service
@@ -4388,7 +4404,7 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
             logCategoryInfo(WGAVersion.WGAPUBLISHER_PRODUCT_NAME + " ready", 1);
             WGFactory.getInstance().closeSessions();
             fireCoreEvent(new WGACoreEvent(WGACoreEvent.TYPE_ONLINE, null, this));
-
+            
         }
         catch (Exception exc) {
             log.fatal("Fatal error initializing WGA", exc);
@@ -5891,6 +5907,9 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
         
         // Update filter mappings
         initReadFilterMappings();
+        if (getFilter() != null) {
+            getFilter().initFilterChain();
+        }
         
         // Event Manager
         _eventManager.reloadConfig();
@@ -6747,7 +6766,10 @@ public class WGACore implements WGDatabaseConnectListener, ScopeProvider, ClassL
                 
                 // Add file annotators
                 updateFileAnnotators(db);
-                                                                                                                              
+
+                // add File Converter
+                db.setFileConverter(_fileConverter);
+
                 // System container initialisations
                 if (scContext != null) {
                     scContext.performInitialisation(new Boolean(isEmptyDB));

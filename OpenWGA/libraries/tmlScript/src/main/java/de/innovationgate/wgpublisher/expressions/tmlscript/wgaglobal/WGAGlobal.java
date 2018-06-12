@@ -95,6 +95,7 @@ import de.innovationgate.wgpublisher.expressions.tmlscript.VarArgParser.Argument
 import de.innovationgate.wgpublisher.expressions.tmlscript.scopes.RhinoScope;
 import de.innovationgate.wgpublisher.expressions.tmlscript.scopes.TMLScriptObjectParentScope;
 import de.innovationgate.wgpublisher.expressions.tmlscript.scopes.TMLScriptRootScope;
+import de.innovationgate.wgpublisher.expressions.tmlscript.wrapping.ContextWrapper;
 import de.innovationgate.wgpublisher.mail.SmtpMail;
 import de.innovationgate.wgpublisher.scheduler.JobContext;
 import de.innovationgate.wgpublisher.webtml.actions.TMLAction;
@@ -898,9 +899,8 @@ public class WGAGlobal extends ScriptableObject implements Wrapper {
     
     public static Plugin plugin(Context cx, Scriptable thisObj, java.lang.Object[] args, Function funObj) throws WGException {
         
-        if (args.length != 1) {
-            throw new EvaluatorException("Method get(thisObj).getWga().plugin() needs a single parameter, either string or database");
-        }
+        if (args.length == 0)
+        	return get(thisObj).getWga().plugin();
         
         Object arg1 = Context.jsToJava(args[0], Object.class);
         
@@ -911,7 +911,7 @@ public class WGAGlobal extends ScriptableObject implements Wrapper {
             return get(thisObj).getWga().plugin((WGDatabase) arg1);
         }
         else {
-            throw new EvaluatorException("Method get(thisObj).getWga().plugin() needs a single parameter, either string or database");
+            throw new EvaluatorException("Method WGA.plugin() called with wrong parameter");
         }
         
         
@@ -1056,6 +1056,9 @@ public class WGAGlobal extends ScriptableObject implements Wrapper {
             if (args.length == 0) {
                 return get(thisObj).getWga().createMail();
             }
+            if (args.length == 1) {
+                return get(thisObj).getWga().createMail((Map<String,Object>)args[0]);
+            }
             else if (args.length == 3) {
                 Object arg1 = args[0];
                 Object arg2 = args[1];
@@ -1063,7 +1066,7 @@ public class WGAGlobal extends ScriptableObject implements Wrapper {
                 return get(thisObj).getWga().createMail(String.valueOf(arg1), String.valueOf(arg2), String.valueOf(arg3));
             }
             else {
-                throw new EvaluatorException("Method get(thisObj).getWga().createMail) needs either no parameters or three string parameters");
+                throw new EvaluatorException("Method WGA.createMail() needs either no parameter, one Map parameter or three string parameters");
             }
         }
         catch (WGException e) {
@@ -1101,15 +1104,30 @@ public class WGAGlobal extends ScriptableObject implements Wrapper {
     
     public static String encode(Context cx, Scriptable thisObj, java.lang.Object[] args, Function funObj) throws JavaScriptException, FormattingException {
         
+    	/*
         if (args.length != 2) {
             throw new EvaluatorException("Method get(thisObj).getWga().encode() needs a string and an object parameter");
         }
-        
+        */
         try {
-            return get(thisObj).getWga().encode(
-                    String.valueOf(args[0]), 
-                    Context.jsToJava(args[1], Object.class)
-            );
+        	
+        	if(args.length == 2){            	
+                return get(thisObj).getWga().encode(
+                        String.valueOf(args[0]), 
+                        Context.jsToJava(args[1], Object.class)
+                );        		
+        	}
+        	else if(args.length == 3){
+                return get(thisObj).getWga().encode(
+                        String.valueOf(args[0]), 
+                        Context.jsToJava(args[1], Object.class),
+                        ((ContextWrapper)args[2]).getTmlContext()
+                );        		
+        	}
+        	else{
+        		throw new EvaluatorException("Invalid parameters for WGA.encode(String, Object[, TMLContext])");
+        	}
+        	
         }
         catch (WGException e) {
             throw Context.throwAsScriptRuntimeEx(e);

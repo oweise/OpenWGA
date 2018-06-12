@@ -132,8 +132,11 @@ public class MetaInfo {
         return _luceneBoost;
     }
 
+    /**
+     * @deprecated -> MetaInfo boost will be set to 1.0F. Use boost at search time instead.
+     */
     void setLuceneBoost(float luceneBoost) {
-        _luceneBoost = luceneBoost;
+        _luceneBoost = 1.0F;		//luceneBoost;
     }
 
     /**

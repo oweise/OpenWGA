@@ -158,6 +158,7 @@ BI.struct=function(){
 		chooseVLink: function(el){
 
 			var form=el.form;
+			var form_id = form.id;
 			var linktype = form.virtuallinktype.value||"exturl";
 			var path = decodeURI(form.virtuallink.value).split("/");
 			var wgakey;
@@ -178,6 +179,7 @@ BI.struct=function(){
 			};
 			BI.dialog.show("rtf:insert-link", null, opts);
 			BI.dialog.callback=function(url, linktext, linkinfo, target){
+				var form = document.getElementById(form_id);
 				linktype=linkinfo.type;
 				form.virtuallink.value=linkinfo.key;
 				form.virtuallinktype.value=linktype;
@@ -466,9 +468,9 @@ BI.util.createAttachmentGrid=function(el, type, key, autoHeight, dragdrop, lazy_
     	},
 		{
 			id: "col-filename", header: $L.filename, width: 40, sortable: true, dataIndex: 'name',
-				editor: new Ext.grid.GridEditor(new Ext.form.TextField({
-	            	allowBlank: false
-	          	}))
+			editor: new Ext.grid.GridEditor(new Ext.form.TextField({
+            	allowBlank: false
+          	}))
 		},
 		{id: "col-size", header: $L.filesize, width: 50, resizable:false, align:"right", renderer: BI.util.renderFileSize, sortable: true, dataIndex: 'size'}
 	]);

@@ -783,7 +783,7 @@ public class ForEach extends Base implements IterationTag {
         }
         
         // WebTML-Variable
-        String currentPageParam = this.getId() + "Page";
+        String currentPageParam = this.getId() + "page";
         try {
             String varName = "$" + currentPageParam;
             if (!getTMLContext().isempty(varName)) {
@@ -845,7 +845,10 @@ public class ForEach extends Base implements IterationTag {
             }
 			
 			try {
-                this.getTMLContext().setvar("index", new Integer(this.getIteration()), false);
+				if (getTMLContext().getDesignContext().getVersionCompliance().isAtLeast(7,2)) {
+					getTMLContext().setLocalVar("index", new Integer(this.getIteration()));
+				}
+				else this.getTMLContext().setvar("index", new Integer(this.getIteration()), false);
             }
             catch (WGAPIException e) {
                 this.addWarning("Unable to set var 'index': " + e.getMessage(), false);
@@ -900,23 +903,7 @@ public class ForEach extends Base implements IterationTag {
 	    if (currentObject instanceof WGDocument) {
 	        return getTMLContextForDocument((WGDocument) currentObject);
 	    }
-	    
-	    TMLScript tmlScript = WGA.get(getTMLContext()).tmlscript();
-	    if (tmlScript.isNativeObject(currentObject)) {
-	        try {
-	            if (tmlScript.hasProperty(currentObject, "context")) {
-	                Object contextObj = tmlScript.callMethod(currentObject, "context");
-	                if (contextObj instanceof TMLContext) {
-	                    return (TMLContext) contextObj;
-	                }
-	            }
-	            
-	            return (TMLContext) tmlScript.descriptify(currentObject, Context.class);
-	        }
-	        catch (WGException e) {
-	        }
-	    }
-	    
+	    	    
 	    return null;
 	    
     }

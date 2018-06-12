@@ -157,20 +157,15 @@ public class Root extends Base {
             }
         }
         
-        // In some situations we may decide not to render the portlet at all and first ask the client for the "best" state
-        // Conditions: AJAX Request & included portlet & the current state is overwritable by the client & no current form (whose field registration may be tainted by this)
-        if (pageContext.getRequest().getAttribute(WGACore.ATTRIB_AJAXINFO) != null && status.receptorTag != null && getTMLContext().gettmlform() == null) {
-            TMLPortletState state = portlet.getState();
-            if (state.isOverwritableByClient()) {
-                setEvalBody(false);
-                setResult(""); // Bypass stupid exiting behaviour of Base when result is null. Would prevent prefix/suffix from being rendered.
-                state.setForceReload(true);
-                
-                if (status.debugNode != null) {
-                    status.debugNode.addAttribute("skippedforreload", "true");
-                }
-            }
-        }
+        // #00004841:
+        // if the portlet state is "isOverwritableByClient" we render an empty portlet and let the client request it.
+        // this prevents the portlet from being rendered twice and avoids "flickering" of the UI on the client side.
+        TMLPortletState state = portlet.getState();
+        if (state.isOverwritableByClient()) {
+            setEvalBody(false);
+            setResult(""); // Bypass stupid exiting behaviour of Base when result is null. Would prevent prefix/suffix from being rendered.
+            state.setForceReload(true);
+        }        	
         
         // Set portlet context.
         TMLContext portletContext = portlet.getcontext();
@@ -275,11 +270,14 @@ public class Root extends Base {
         status.parentTag = status;
         setBasicRequestAttributes(request);
         
+        /*
         // Cancel here if we have an ajax failure when restoring AJAX environment failed
+         * removed bc. #00004828
         if (status._isAjaxFailure) {
             setEvalBody(false);
             return;
         }
+        */
         
         // Eventually enable TML Debug
         HttpSession session = this.pageContext.getSession();
@@ -295,14 +293,12 @@ public class Root extends Base {
         	List<String> userNamesList = new ArrayList<String>();
         	userNamesList.add(content.getAuthor());
         	 
-        	if ( content.getStatus().equals(WGContent.STATUS_DRAFT) 
-        		&& (!content.hasCompleteRelationships() || content.getStructEntry().mayEditChildPages())
-        		&& content.getLanguage().mayCreateContent()
+        	if ( content.getStatus().equals(WGContent.STATUS_DRAFT)
+        		&& content.mayEditContent()
         		&& content.getDatabase().isMemberOfUserList( userNamesList )
         		&& !content.hasItem("remote_info")
-        		) {			
-        		
-        		pageContext.getRequest().setAttribute(WGACore.ATTRIB_EDITDOCUMENT, content.getContentKey().toString());
+        		) {			        		
+        			pageContext.getRequest().setAttribute(WGACore.ATTRIB_EDITDOCUMENT, content.getContentKey().toString());
         	}
         }
         
@@ -310,13 +306,6 @@ public class Root extends Base {
         WGAError wgaError = (WGAError) getPageContext().getRequest().getAttribute(WGACore.ATTRIB_WGAERROR);
         if (wgaError != null) {
             WGA.get(getTMLContext()).tmlPage().setVar("wgaerror", wgaError);
-        }
-
-        
-        // Cancel here if we have an ajax failure because action was called for wrong session id
-        if (status._isAjaxFailure) {
-            setEvalBody(false);
-            return;
         }
 
         // Deactivate body on AJAX no refresh call
@@ -455,6 +444,7 @@ public class Root extends Base {
 			this.pageContext.getRequest().setAttribute(WGACore.ATTRIB_TAGIDS, null);
 		}
 		
+		/*
 		if (status.receptorTag == null && status._ajax == false) {
 		    TMLPageImpl page = (TMLPageImpl) WGA.get(getTMLContext()).tmlPage();
 		    PageConnection pageConn = page.getPageConnection(false);
@@ -462,6 +452,7 @@ public class Root extends Base {
 		        getTMLContext().addwarning("A WebSocket connection is needed by this page but was initialized too late, so it could not be established. Use Page.prepareSocket() either before <tml:htmlhead> is rendered or the last WebTML portlet ends.");
 		    }
 		}
+		*/
 		
 		recoverCurrentTMLAttributes();
         
@@ -476,19 +467,16 @@ public class Root extends Base {
             StringBuffer javaScript = new StringBuffer();
             
             if (!status._isAjaxNoRefreshCall) {
-                javaScript.append("<script type=\"text/javascript\">");
+                javaScript.append("<script>");
             }
             
             if (!getTMLContext().isbotrequest()) {
-                boolean alreadyWarned = isAlreadyWarnedAboutAJAXFailure(status._ajaxInfo);
-                if (!alreadyWarned) {
-                    String message = getTMLContext().systemLabel("tml", "ajax.sessionexpired.message");
-                    try {
-                        javaScript.append("WGA.util.showReloadMessage(\"" + getTMLContext().encode("javascript", message) +  "\");");
-                    }
-                    catch (FormattingException e) {
-                        getTMLContext().getlog().error("Exception encoding AJAX error message", e);
-                    }
+                String message = getTMLContext().systemLabel("tml", "ajax.sessionexpired.message");
+                try {
+                    javaScript.append("WGA.util.showReloadMessage(\"" + getTMLContext().encode("javascript", message) +  "\");");
+                }
+                catch (FormattingException e) {
+                    getTMLContext().getlog().error("Exception encoding AJAX error message", e);
                 }
             }
             
@@ -497,8 +485,8 @@ public class Root extends Base {
             }
             
             this.setSuffix(javaScript.toString());
-            this.setResult(""); // Neccessary to trigger any tag output
-            return;
+            //this.setResult(""); // Neccessary to trigger any tag output
+            //return;
             
         }
         
@@ -511,7 +499,7 @@ public class Root extends Base {
     				String serializedInfo = FormBase.serializeFormInfo(form.getforminfo(), getTMLContext());
     	            StringBuffer javaScript = new StringBuffer();
     	            if (!status._isAjaxNoRefreshCall) {
-    	                javaScript.append("<script type=\"text/javascript\">");
+    	                javaScript.append("<script>");
     	            }
     			    javaScript.append("var form = document.forms['").append(form.getformid()).append("'];");
     			    javaScript.append("if( form ) {");
@@ -535,7 +523,7 @@ public class Root extends Base {
         if (redirectURL != null) {
             StringBuffer javaScript = new StringBuffer();
             if (!status._isAjaxNoRefreshCall) {
-                javaScript.append("<script type=\"text/javascript\">");
+                javaScript.append("<script>");
             }
             
             javaScript.append("location.href=\"" + WGUtils.encodeJS(redirectURL) + "\";");
@@ -716,12 +704,7 @@ public class Root extends Base {
             Status status = (Status) getStatus();
             AjaxInfo ajaxInfo = getCurrentPortletAjaxInfo(status);
             StringBuilder javaScript = new StringBuilder();
-            if (!status._isAjaxNoRefreshCall) {
-                javaScript.append("<script type=\"text/javascript\">\n");
-            }
-            
             boolean somethingDone = false;
-            
             
             // Write changed portlet states to the client when they are transient: On the absolute root when AJAX request, on first level portlet includes on Non-AJAX requests
             TMLPortletStateStorage stateStorage = getTMLContext().getPortletStateStorage();
@@ -764,11 +747,6 @@ public class Root extends Base {
 
             }
             
-            // Eventually init the page connection, if not already done
-            if (status._ajax == false) {
-                initPageConnectionClient(javaScript);
-            }
-
             // check for portlet events that were issued inside the call and render if present (once for absolute root only)
             if (ajaxInfo != null) {
                 @SuppressWarnings("unchecked")
@@ -784,12 +762,18 @@ public class Root extends Base {
                 }
             }
             
-            if (!status._isAjaxNoRefreshCall) {
-                javaScript.append("</script>");
-            }
-            
             if (somethingDone) {
-               this.setSuffix(this.getSuffix() + javaScript.toString());
+            	// Eventually init the page connection, if not already done
+                if (status._ajax == false) {
+                	initPageConnectionClient(javaScript);
+                }
+                
+                String suffix;
+                if (status._isAjaxNoRefreshCall)
+                	suffix = javaScript.toString();
+                else suffix = "<script>" + javaScript.toString() + "</script>";
+                
+                this.setSuffix(this.getSuffix() + suffix);
             }
         }
         catch (Exception e) {
@@ -830,7 +814,7 @@ public class Root extends Base {
         
         // create javascript block for registration
         if (!skipScriptTags) {
-            javaScript.append("<script type=\"text/javascript\">");
+            javaScript.append("<script>");
         }
         
         Map<String,Object> regParams = new HashMap<String,Object>();

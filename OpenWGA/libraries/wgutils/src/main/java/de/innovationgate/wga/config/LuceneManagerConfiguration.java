@@ -49,6 +49,12 @@ public class LuceneManagerConfiguration extends ConfigBean {
     @Attribute(required=false)
     private boolean optimizeIndexAutomatically = true;
 
+    @Attribute(required=false)
+	private boolean useLanguageAnalyzers = false;	// to be backwords compatible
+
+    @Attribute(required=false)
+	private boolean indexReleasedContentsOnly=false;
+
 	public LuceneManagerConfiguration() {	
 	}
 	
@@ -103,5 +109,20 @@ public class LuceneManagerConfiguration extends ConfigBean {
     public void setOptimizeIndexAutomatically(boolean optimizeIndexAutomatically) {
         this.optimizeIndexAutomatically = optimizeIndexAutomatically;
     }
+
+    public void setUseLanguageAnalyzers(boolean use) {
+        this.useLanguageAnalyzers = use;
+    }
+    public boolean isUseLanguageAnalyzers() {
+        return useLanguageAnalyzers;
+    }
+
+	public boolean isIndexReleasedContentsOnly() {
+		return indexReleasedContentsOnly;
+	}
 	
+	public void setIndexReleasedContentsOnly(boolean index) {
+		this.indexReleasedContentsOnly=index;
+	}
+
 }

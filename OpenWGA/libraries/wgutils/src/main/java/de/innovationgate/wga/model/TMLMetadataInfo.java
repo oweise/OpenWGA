@@ -15,6 +15,8 @@
  ******************************************************************************/
 package de.innovationgate.wga.model;
 
+import com.thoughtworks.xstream.annotations.XStreamOmitField;
+
 import de.innovationgate.utils.WGUtils;
 
 /**
@@ -28,6 +30,7 @@ public class TMLMetadataInfo extends DesignMetadataInfo {
     public static final String XSTREAM_ALIAS = "TMLMetaData";
 
     private static final String METANAME_DIRECTACCESS = "directaccess";
+    private static final String METANAME_PREPROCESS = "preprocess";
 
     private static final String METANAME_CACHEABLE = "cacheable";
 
@@ -36,6 +39,16 @@ public class TMLMetadataInfo extends DesignMetadataInfo {
 	private boolean directAccess = true;
 	private boolean cacheable = false;
 	private String category = "";
+	
+	@XStreamOmitField
+	private boolean preprocess=false;
+	
+	public boolean isPreprocess() {
+		return preprocess;
+	}
+	public void setPreprocess(boolean p){
+		this.preprocess=p;
+	}
 	
 	public boolean isDirectAccess() {
 		return directAccess;
@@ -70,6 +83,9 @@ public class TMLMetadataInfo extends DesignMetadataInfo {
         else if (property.equalsIgnoreCase(METANAME_CACHEABLE)) {
             setCacheable(WGUtils.stringToBoolean(value));
         }
+        else if (property.equalsIgnoreCase(METANAME_PREPROCESS)) {
+            setPreprocess(WGUtils.stringToBoolean(value));
+        }
         else if (property.equalsIgnoreCase(METANAME_CATEGORIES) || property.equalsIgnoreCase(METANAME_CATEGORY)) {
             setCategory(value);
         }
@@ -78,7 +94,5 @@ public class TMLMetadataInfo extends DesignMetadataInfo {
         }
         
     }
-	
-	
 	
 }

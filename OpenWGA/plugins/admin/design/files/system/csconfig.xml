@@ -44,10 +44,10 @@
       <uniqueName>de.innovationgate.admin</uniqueName>
       <version>
         <majorVersion>7</majorVersion>
-        <minorVersion>3</minorVersion>
-        <maintenanceVersion>0</maintenanceVersion>
+        <minorVersion>5</minorVersion>
+        <maintenanceVersion>5</maintenanceVersion>
         <patchVersion>0</patchVersion>
-        <buildVersion>651</buildVersion>
+        <buildVersion>672</buildVersion>
       </version>
     </id>
     <title>OpenWGA Admin Client</title>
@@ -63,7 +63,7 @@
     </minimumWGAVersion>
     <minimumJavaVersion>
       <majorVersion>1</majorVersion>
-      <minorVersion>6</minorVersion>
+      <minorVersion>7</minorVersion>
       <maintenanceVersion>0</maintenanceVersion>
       <patchVersion>0</patchVersion>
       <buildVersion>0</buildVersion>
@@ -101,7 +101,7 @@
         </version>
       </de.innovationgate.wga.common.beans.csconfig.v1.PluginID>
     </dependencies>
-    <personalisationMode>4</personalisationMode>
+    <personalisationMode>1</personalisationMode>
     <usageAsDesignProvider>false</usageAsDesignProvider>
     <usageAsAuthSource>false</usageAsAuthSource>
     <usageAsContentStore>true</usageAsContentStore>
@@ -130,7 +130,7 @@
   <staticClasspath>false</staticClasspath>
   <minimumWGAVersion>
     <majorVersion>7</majorVersion>
-    <minorVersion>3</minorVersion>
+    <minorVersion>4</minorVersion>
     <maintenanceVersion>0</maintenanceVersion>
     <patchVersion>0</patchVersion>
     <buildVersion>0</buildVersion>

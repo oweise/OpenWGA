@@ -1,0 +1,6 @@
+//@import type=file jquery-ui-1.11/build/jquery-ui.js
+//@import type=file jquery-ui-1.11/source/i18n/datepicker-de.js
+
+var lang = $("html").attr("lang");
+if(lang=="de" || lang=="en")
+	$.datepicker.setDefaults($.datepicker.regional[lang]);

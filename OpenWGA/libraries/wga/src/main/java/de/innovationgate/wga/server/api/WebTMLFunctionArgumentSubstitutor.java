@@ -94,6 +94,11 @@ public class WebTMLFunctionArgumentSubstitutor implements FunctionArgumentSubsti
                 return _wga.tmlcontext().item(argumentName.substring(6));
             }
         }
+        else if (argumentName.equals("$request")) {
+            if (_wga.isTMLContextAvailable()) {
+                return _wga.tmlcontext().getrequest();
+            }
+        }
         else if (argumentName.startsWith("$request_")) {
             if (_wga.isTMLContextAvailable()) {
                 String requestMeta = argumentName.substring(9);
@@ -108,7 +113,22 @@ public class WebTMLFunctionArgumentSubstitutor implements FunctionArgumentSubsti
         }
         else if (argumentName.startsWith("$itemList_")) {
             if (_wga.isTMLContextAvailable()) {
-                return _wga.tmlcontext().item(argumentName.substring(6));
+                return _wga.tmlcontext().itemlist(argumentName.substring(10));
+            }
+        }
+        else if (argumentName.equals("$portlet")) {
+            if (_wga.isTMLContextAvailable()) {
+                return  _wga.tmlcontext().getportlet();
+            }
+        }
+        else if (argumentName.startsWith("$portlet_")) {
+            if (_wga.isTMLContextAvailable()) {
+                return  _wga.tmlcontext().getportlet().item(argumentName.substring(9));
+            }
+        }
+        else if (argumentName.equals("$pc")) {
+            if (_wga.isTMLContextAvailable()) {
+            	return  _wga.tmlcontext().getportlet().getcontroller();
             }
         }
         else if (argumentName.startsWith("$pMode") || argumentName.startsWith("$portletMode")) {
@@ -158,7 +178,7 @@ public class WebTMLFunctionArgumentSubstitutor implements FunctionArgumentSubsti
             return null;
             
         }
-        else if (argumentName.startsWith("$tagInfo_")) {
+        else if (argumentName.startsWith("$tagInfo_") || argumentName.startsWith("$tag_")) {
             
             if (!_wga.isTMLContextAvailable() || !_wga.tmlcontext().iswebenvironment()) {
                 return null;
@@ -171,7 +191,7 @@ public class WebTMLFunctionArgumentSubstitutor implements FunctionArgumentSubsti
             
             String tagId = parts.get(1);
             String tagInfoName = parts.get(2);
-            return _wga.tmlcontext().taginfo(tagId, tagInfoName);
+            return _wga.tmlcontext().tag(tagId).getInfo(tagInfoName);
             
         }
         else if (argumentName.startsWith("$option_")) {
@@ -205,7 +225,32 @@ public class WebTMLFunctionArgumentSubstitutor implements FunctionArgumentSubsti
             }
             
         }
-        
+        else if(argumentName.startsWith("$is_")) {
+
+            if (!_wga.isTMLContextAvailable() || !_wga.tmlcontext().iswebenvironment()) {
+                return null;
+            }
+
+        	String option = argumentName.substring(4);
+        	switch (option) {
+				case "selected":
+					return _wga.tmlcontext().isselected();
+				case "firstloop":
+					return _wga.tmlcontext().isfirstloop();
+				case "lastloop":
+					return _wga.tmlcontext().islastloop();
+				case "root":
+					return _wga.tmlcontext().isroot();
+				case "maindocument":
+					return _wga.tmlcontext().ismaindocument();
+				case "browserinterface":
+					return _wga.tmlcontext().isbrowserinterface();
+				case "anonymous":
+					return _wga.tmlcontext().isanonymous();
+				default:
+					return null;
+			}
+        }
         
         return null;
     }

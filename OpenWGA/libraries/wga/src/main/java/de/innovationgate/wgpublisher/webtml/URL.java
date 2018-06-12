@@ -389,7 +389,7 @@ public class URL extends ActionBase implements DynamicAttributes {
         url.append(requestURL.getPath());
         
         getStatus().keepParams = true;
-        getStatus().urlparams.put(this.getSourcetag() + "Page", (new Integer(targetPage)).toString());
+        getStatus().urlparams.put(this.getSourcetag() + "page", (new Integer(targetPage)).toString());
     }
     
     private void buildActionForeachURL(StringBuffer url, int targetPage) throws MalformedURLException, UnsupportedEncodingException, WGException, TMLException {
@@ -397,7 +397,7 @@ public class URL extends ActionBase implements DynamicAttributes {
         TMLAction tmlAction = getTMLContext().getActionByID("$" + TMLAction.DEFAULTACTION_SETVAR, getDesignDBKey());
         
         List<Object> params = new ArrayList<Object>();
-        params.add("$" + this.getSourcetag() + "Page");
+        params.add("$" + this.getSourcetag() + "page");
         params.add(String.valueOf(targetPage));
         
         String actionURL = buildActionURL(tmlAction, buildNamedActionParameters(true), params);
@@ -420,7 +420,7 @@ public class URL extends ActionBase implements DynamicAttributes {
             url.append(getTMLContext().getURLBuilder().buildFileURL(getTMLContext(), getDb(), getDoc(), getFile()));
         } else {
             //render data url (RFC 2397)
-            url.append(fileContext.filedataurl(getDb(), getDoc(), getFile(), null));
+            url.append(fileContext.filedataurl(getDb(), getDoc(), getFile(), null, getDerivate()));
             status.encodeURL = false;
         }
         return;
@@ -776,7 +776,7 @@ public class URL extends ActionBase implements DynamicAttributes {
         
         // Post processing
         String completeURL = url.toString();
-        boolean isPlainURL = !completeURL.startsWith("javascript:");
+        boolean isPlainURL = (!completeURL.startsWith("javascript:") && !stringToBoolean(getDataurl()));
 
         if (isPlainURL) {
             

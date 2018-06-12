@@ -33,13 +33,18 @@
 	var langs={};
 	
 	var sdoc=content().getStructEntry();
+	
 	var contentlist=sdoc.getAllContent(true);
 	_versions = contentlist.size(); 
 	for(var i=0; i<contentlist.size(); i++){
 		var version=contentlist.get(i);
+		var status=version.getStatus();
+
+		if(status!=version.STATUS_RELEASE && !version.mayEditContent())
+			continue;			
+			
 		if(version.getLanguage().getName()!=LANGUAGE){
 			var lang=version.getLanguage().getName();
-			var status=version.getStatus();
 			var rating=0;
 			switch(status){
 				case version.STATUS_DRAFT:
@@ -67,8 +72,6 @@
 		}
 		if(version.getStatus()==version.STATUS_ARCHIVE)
 			_archive.add(version);
-		/*if(version.getVersion()==VERSION)
-			continue;*/
 		if(version.getStatus()==version.STATUS_RELEASE)
 			_released_version=version;
 		else if(version.getStatus()==version.STATUS_DRAFT)

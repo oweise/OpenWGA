@@ -147,7 +147,7 @@ public class DefaultURLBuilder implements WGAURLBuilder, WGASpecificFileURLBuild
     	}
     	
     	ContentURL url = innerBuildContentURL(context, mediaKey, layoutKey, ignoreVirtualLink);
-        if (!url.isExternal()) { // Do not rewrite for external URLs (#00003853)
+        if (!url.isExternal() && !context.content().isVirtual()) { // Do not rewrite for external URLs (#00003853) or virtual links (they are already rewritten)
             return rewriteURL(url.getUrl(), context.getrequest(), context.getwgacore(), context.content().isVirtual());
         }
         else {
@@ -246,7 +246,7 @@ public class DefaultURLBuilder implements WGAURLBuilder, WGASpecificFileURLBuild
         if (useLoginParameter && context.content().getDatabase().getSessionContext().isAnonymous() == false) {
             try {
                 de.innovationgate.wgpublisher.webtml.utils.URLBuilder builder = WGA.get(context).urlBuilder(completeUrl);
-                builder.setParameter("login", null);
+                builder.setParameter("login");
                 completeUrl = builder.buildLikeGiven();
             }
             catch (Exception e) {
@@ -760,9 +760,9 @@ public class DefaultURLBuilder implements WGAURLBuilder, WGASpecificFileURLBuild
         if (!url.contains("//") && !url.startsWith("/")) {
             
             Map<Object, DBLoginInfo> logins = WGACore.getSessionLogins(request.getSession());
-            if (!logins.containsKey(_core.getDomainForDatabase(db).getName())) { // If a login is stored on the session for the dbs domain we assume it accessible
-                
-               if (!db.isSessionOpen()) {
+            DBLoginInfo logininfo = logins.get(_core.getDomainForDatabase(db).getName());
+            if(logininfo==null || logininfo.isAnonymous()){
+            	if (!db.isSessionOpen()) {
                     try {
                         db.openSession(WGDatabase.ANONYMOUS_USER, null);
                     }

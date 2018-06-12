@@ -41,9 +41,12 @@ import de.innovationgate.webgate.api.WGException;
 import de.innovationgate.wga.server.api.Nav.IndexCountingIterator;
 import de.innovationgate.wga.server.api.tml.Context;
 
+import de.innovationgate.wga.common.CodeCompletion;
+
 /**
  * Represents an object carrying all resulting data of a document collection.
  */
+@CodeCompletion(methodMode=CodeCompletion.MODE_EXCLUDE)
 public abstract class CollectionResult implements Iterable<Context> {
     
     /**
@@ -274,6 +277,7 @@ public abstract class CollectionResult implements Iterable<Context> {
      * Returns the index of the last returned result document from the given iterator that this document had on the original collection result. Index 1 is the first document.
      * @param it The iterator. Must be an iterator returned from a {@link CollectionResult} object
      */
+    @CodeCompletion
     public int determineCurrentIndex(Iterator<?> it) {
 
         while (true) {
@@ -354,15 +358,15 @@ public abstract class CollectionResult implements Iterable<Context> {
     
 
     /**
-     * Returns the first result content of the query
-     * This is an effective way of returning the very first content document that is returned by the query if only this is important.
+     * Returns the first result of the query
+     * This is an effective way of returning the very first document that is returned by the query if only this is important.
      * If the result contains no contents this method returns null.
      */
 
     public Context getFirstResult() throws WGException {
-        WGContent con = getFirstResultContent();
-        if (con != null) {
-            return _wga.tmlcontext().context(con);
+        Iterator<Context> it = iterator();
+        if (it.hasNext()) {
+            return it.next();
         }
         else {
             return null;
@@ -377,7 +381,8 @@ public abstract class CollectionResult implements Iterable<Context> {
      * @throws WGException
      */
     public Object getSingleValue(String itemName) throws WGException {
-        WGContent con = getFirstResultContent();
+
+    	WGContent con = getFirstResultContent();
         if (con != null) {
             return con.getItemValue(itemName);
         }
@@ -392,21 +397,21 @@ public abstract class CollectionResult implements Iterable<Context> {
      * If the result contains no contents this method returns null.
      */
     public WGContent getFirstResultContent() throws WGException {
-        Iterator<Context> it = iterator();
-        if (it.hasNext()) {
-            return it.next().content();
-        }
-        else {
-            return null;
-        }
+    	Context firstResult = getFirstResult();
+    	return firstResult==null ? null : firstResult.content();
     }
-    
+
+    public boolean isEmpty() throws WGException {
+        return !iterator().hasNext();
+    }
+
     /**
      * Returns an iterable whose iterators wrap/transform the returned documents into some custom object
      * @param wrapper A wrapping implementation
      * @return The wrapping iterable
      * @throws WGException
      */
+    @CodeCompletion
     public <T> Iterable<T> wrap(final Wrapper<T> wrapper) throws WGException {
         
         return new Iterable<T>() {
@@ -418,6 +423,21 @@ public abstract class CollectionResult implements Iterable<Context> {
         
     }
  
+    public interface Function {
+        public void call(Context context) throws WGException;
+    }
+
+    /**
+     * Calls a JS-function for each element in the collection
+     * @param function
+     * @throws WGException
+     */
+    public void each(Function function) throws WGException{
+    	SkippingIterator<Context> it = iterator();
+    	while(it.hasNext()){
+    		function.call(it.next());
+    	}
+    }
 
 }
  

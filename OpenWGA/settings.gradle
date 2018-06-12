@@ -12,8 +12,6 @@ project(":wgapiJdbc").projectDir = file("libraries/wgapiJdbc")
 include ":servicesClient"
 project(":servicesClient").projectDir = file("libraries/servicesClient") 
 
-include ":servicesClient:xfireClientFactory"
-project(":servicesClient:xfireClientFactory").projectDir = file("libraries/servicesClient/xfireClientFactory") 
 
 include ":wgaBuildTools"
 project(":wgaBuildTools").projectDir = file("libraries/wgaBuildTools")
@@ -28,7 +26,6 @@ include ":wgaDeb"
 project(":wgaDeb").projectDir = file("distros/wgaDeb")
 
 include ":server"
-include ":server:testRuntime"
 
 include ":plugin-admin"
 project(":plugin-admin").projectDir = file("plugins/admin")
@@ -48,3 +45,14 @@ project(":plugin-management").projectDir = file("plugins/management")
 include ":plugin-additional-script-langs"
 project(":plugin-additional-script-langs").projectDir = file("plugins/additional-script-langs")
 
+include ":plugin-rest"
+project(":plugin-rest").projectDir = file("plugins/rest")
+
+include ":plugin-cs-maintenance"
+project(":plugin-cs-maintenance").projectDir = file("plugins/cs-maintenance")
+
+include ":plugin-app-ui-3-1"
+project(":plugin-app-ui-3-1").projectDir = file("plugins/app-ui-3-1")
+
+include ":plugin-xfire-server"
+project(":plugin-xfire-server").projectDir = file("plugins/plugin-xfire-server")

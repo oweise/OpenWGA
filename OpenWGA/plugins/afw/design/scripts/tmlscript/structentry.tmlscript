@@ -224,14 +224,11 @@ this.mayEditStruct=function(){
 }
 
 this.mayCreateContent=function(){
-	if(!this.mayEditContent())		// check if struct allowes creation (database and contenttype allows edit)
-		return _false(reason);
-	
-	// check if languages available for current user that have no content yet:		
+	// check if languages available for current user that have no content yet and is allowed to be created:		
 	var langs = database.getLanguages().values().iterator();
 	while(langs.hasNext()){
 		var lang=langs.next();
-		if(lang.mayCreateContent() && !this.hasContent(lang.name))
+		if(struct.mayCreateContent(lang) && !this.hasContent(lang.name))
 			return true;
 	}
 	return _false(label("reason.no-more-languages"));
@@ -253,14 +250,14 @@ this.getTitle=function(encode){
 
 this.getContentTitle=function(encode, lang){
 	var lang = lang || Database.getPreferedLanguage();
-	var bestContent=this.getAllContent(lang, false);
-	if(bestContent.isEmpty()){
+	var bestContent=this.getBestContent();
+	if(!bestContent){
 		if(this.hasContent(lang))
 			return "("+label("no-reader-access")+")"
 		else return this.getTitle(encode);
 	}
 
-	var t=bestContent.get(0).getTitle();
+	var t=bestContent.getTitle();
 	return encode ? t.replace(/"/g, "'").replace(/[\n\r]/g, "") : t;
 }
 
@@ -282,10 +279,15 @@ this.getAllContent=function(lang, include_archive){
 
 this.getBestContent=function(lang){
 	var lang = lang || Database.getPreferedLanguage();
-	var bestContent=this.getAllContent(lang, false);
-	if(bestContent.isEmpty())
-		return null;
-	return bestContent.get(0);
+	if(struct.mayEditPage()){
+		var bestContent=this.getAllContent(lang, false);
+		if(bestContent.isEmpty()){
+			//console.log("no best content in lang", lang, this.getTitle(), struct.getAllContent());
+			return null;
+		}
+		return bestContent.get(0);
+	}
+	else return struct.getReleasedContent(lang);
 }
 
 this.hasContent=function(lang, includeArchived){
@@ -448,4 +450,13 @@ this.copyFromRemote=function(remotedb, remotekey){
 			copyStructure(sdoc, child)
 		}	
 	}
+}
+
+this.isVisible = function(){
+	if(struct.mayReadContent() && (struct.mayEditPage() || struct.hasReleasedContent(null))){
+		// also check content readers
+		var allContent = struct.getAllContent(true);
+		return !(allContent.isEmpty() && struct.hasContent(null, null))
+	}
+	return false;
 }

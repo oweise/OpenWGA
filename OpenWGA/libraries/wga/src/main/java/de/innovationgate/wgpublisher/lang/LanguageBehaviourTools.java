@@ -75,7 +75,7 @@ public class LanguageBehaviourTools {
                 
         }
         
-        public Integer getStatusValue(String status) {
+        private Integer getStatusValue(String status) {
             
             if (status.equals(WGContent.STATUS_DRAFT)) {
                 return new Integer(10);
@@ -197,7 +197,7 @@ public class LanguageBehaviourTools {
         
         // Non-BI mode: Just return released content
         if (!isBI) {
-            return page.getReleasedContent(language);
+        	return page.getReleasedContent(language);
         }
         
         
@@ -212,8 +212,8 @@ public class LanguageBehaviourTools {
             if (!language.equalsIgnoreCase(content.getLanguage().getName())) {
                 continue;
             }
-            
-            allContent.add(content);
+            if(content.getStatus().equals(content.STATUS_RELEASE) || content.mayEditContent())
+            	allContent.add(content);
         }
         
         if (allContent.isEmpty()) {

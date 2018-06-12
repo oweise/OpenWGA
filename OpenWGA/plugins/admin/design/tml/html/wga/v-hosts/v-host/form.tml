@@ -18,7 +18,7 @@
 </fieldset>
 
 <fieldset>
-	<legend>Databases</legend>
+	<legend>Applications</legend>
 
 	<label>Allowed Apps:</label>
 	<div class="data">
@@ -69,14 +69,39 @@
 		<tml:[system:fs-input] o_field="defaultDatabase" o_type="select" o_options="{'- None -|,'+_dbs}" o_changeaction="$refresh"/>
 		<tml:case condition="tmlform.field('/defaultDatabase')">
 			<tml:[system:fs-input] o_field="hideDefaultDatabaseInURL" o_type="boolean" o_changeaction="$refresh"/>
-		</tml:case>
-		<tml:case condition="tmlform.field('/hideDefaultDatabaseInURL')">
-			<tml:[system:fs-input] o_field="hideHomepageURL" o_type="boolean"/>
+			<tml:case condition="tmlform.field('/hideDefaultDatabaseInURL')">
+				<tml:[system:fs-input] o_field="hideHomepageURL" o_type="boolean"/>
+			</tml:case>
 		</tml:case>
 	</tml:case>
 
-</fieldset>
+	<tml:[system:fs-input] o_field="preferedLanguages" o_type="text" o_emptytext="optional comma seperated language codes" o_allowblank="true"/>
 	
+</fieldset>
+
+<fieldset>
+	<legend>Restrictions</legend>
+	<tml:[system:fs-input] o_field="allowAdminApps" o_type="boolean"/>
+	<tml:[system:fs-input] o_field="allowAuthoringApps" o_type="boolean"/>
+</fieldset>	
+
+<tml:script>
+	_hasRobotsTxt=false;
+	for(let el in Iterator(_config_bean.virtualResources)){
+		if(el.name.toLowerCase()=="robots.txt"){
+			_hasRobotsTxt=true;
+			break;
+		}
+	}
+</tml:script>
+
+<tml:case isfalse="_hasRobotsTxt">
+	<fieldset>
+		<legend>Robots</legend>
+		<tml:[system:fs-input] o_field="robotsTxt" o_type="textarea" o_width="350"/>
+	</fieldset>
+</tml:case>
+
 <div id="v-resources-array-list" class="array-list-editor">			
 	<fieldset>
 		<legend>Virtual Resources</legend>

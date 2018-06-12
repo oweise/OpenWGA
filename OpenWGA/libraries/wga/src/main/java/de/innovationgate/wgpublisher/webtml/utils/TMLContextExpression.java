@@ -475,7 +475,7 @@ public class TMLContextExpression {
                 return errorReturnContext;
             }
             VirtualLinkTarget vlinkTarget = context.getwgacore().resolveVirtualLink(WGA.get(context), content);
-            if (vlinkTarget.getType() == VirtualLinkTarget.Type.CONTENT) {
+            if (vlinkTarget!=null && vlinkTarget.getType() == VirtualLinkTarget.Type.CONTENT) {
                 TMLContext vlinkContext = context.context("docid:" + vlinkTarget.getContainerKey(), false);
                 if (vlinkContext != null) {
                     return vlinkContext;
@@ -526,7 +526,8 @@ public class TMLContextExpression {
             content =
                     WGPDispatcher.getContentByAnyKey(
                         contextExpression,
-                        context.content().getDatabase(),
+                        //context.content().getDatabase(),
+                        context.getdocument().getDatabase(),
                         getOriginContextLanguageChooser(),
                         context.isbrowserinterface());
     
@@ -540,18 +541,31 @@ public class TMLContextExpression {
             }
     
         }
-    
+        
+        // Retrieve context by sequence (hex)
+        else if (contextFunction.equals("seq")) {
+        	try{
+	        	long seq = Long.parseLong(contextExpression, 16);
+        		WGStructEntry struct = context.db().getStructEntryBySequence(seq);
+	        	if(struct!=null){
+	        		WGContent content = getOriginContextLanguageChooser().selectContentForPage(struct, context.isbrowserinterface());
+	                if (content != null) {
+	                	return context.getTMLContextForDocument(content);
+	                }
+	        	}
+        	}
+        	catch(NumberFormatException e){}	// ignore errors
+        	return errorReturnContext;
+        }
+        
+        // Retrieve context by name
         else if (contextFunction.equals("name")) {
-            
-    
             WGContent content = getOriginContextLanguageChooser().selectContentForName(context.content().getDatabase(), contextExpression, context.isbrowserinterface());
             if (content != null) {
                 return context.getTMLContextForDocument(navigator.chooseRelevantContent(content, mainContent));
             }
-        
             context.setLastError("Could not retrieve content for name: " + contextExpression);
             return errorReturnContext;
-            
         }
     
         // Retrieve the context of another tag

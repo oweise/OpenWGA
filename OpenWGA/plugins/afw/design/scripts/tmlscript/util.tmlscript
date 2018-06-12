@@ -412,6 +412,58 @@ this.timeElapsed = function(d){
 	}
 }
 
+this.dateRange = function(start_date, end_date){
+	
+	if(!start_date && !end_date)
+		return ""
+	if(!start_date){
+		// output end date
+		var h = WGA.format(end_date, "HH:mm")
+		var ret = WGA.design(this).label("date-range.to") 
+			+ " " + WGA.format(end_date, "d. MMMMM yyyy")
+		if(h!="23:59")
+			ret += ", " + h + " " + WGA.design(this).label("date-range.h") 
+		return ret
+	}
+	if(!end_date){
+		// output start date
+		var h = WGA.format(start_date, "HH:mm")
+		var ret = WGA.design(this).label("date-range.from") 
+			+ " " + WGA.format(start_date, "d. MMMMM yyyy")
+		if(h!="00:00")
+			ret += ", " + h + " " + WGA.design(this).label("date-range.h") 
+		return ret
+	}
+	
+	var start = WGA.createCalendar(start_date)
+	var end = WGA.createCalendar(end_date)
+	
+	if(start.get(start.YEAR)==end.get(end.YEAR)){
+		if(start.get(start.MONTH)==end.get(end.MONTH)){
+			if(start.get(start.DAY_OF_MONTH)==end.get(end.DAY_OF_MONTH)){
+				// same day
+				return WGA.format(start.time, "d. MMM yyyy, HH:mm")
+					+ " " + WGA.design(this).label("date-range.to") + " "
+					+ WGA.format(end.time, "HH:mm")
+					+ " " + WGA.design(this).label("date-range.h")
+			}
+			else{	// same month
+				return WGA.format(start.time, "d.")
+					+ " " + WGA.design(this).label("date-range.to") + " "
+					+ WGA.format(end.time, "d. MMM yyyy")
+			}
+		}
+		else{	// same year
+			return WGA.format(start.time, "d. MMM")
+				+ " " + WGA.design(this).label("date-range.to") + " "
+				+ WGA.format(end.time, "d. MMM yyyy")
+			
+		}
+	}
+	else return WGA.format(start.time, "d. MMM yyyy")
+		+ " " + WGA.design(this).label("date-range.to") + " "
+		+ WGA.format(end.time, "d. MMM yyyy") 
+}
 
 this.renderFileSize = function(value) {
 	// start with GB and work way down to kB
@@ -443,6 +495,10 @@ this.fileSizeText = function(value) {
 		return value + ' bytes';		
 }
 
+/*
+ * @deprecated
+ * Use csvWriter instead.
+ */
 this.csvExporter = function(divider, encoding){
 
   	var out = new Packages.java.io.PrintWriter(new Packages.java.io.OutputStreamWriter(response.getOutputStream(), encoding||"UTF-8"));
@@ -516,12 +572,13 @@ this.getAppKeysBasedOnPlugin=function(plugin_name){
  */
 this.csvWriter = function(config){
 
-	var line = "";
+	var line = null;
 	var div = config.divider || ";";
 
 	function addValue(value){
-		if(line)
-			line += div
+		if(line==null)
+			line="";
+		else line += div
 		if(value instanceof Packages.java.util.Date)
 			line += WGA.format(value, config.dateFormat || "yyyy-MM-dd HH:mm:ss")
 		else if(typeof(value)=="string")
@@ -532,7 +589,7 @@ this.csvWriter = function(config){
 	function flush(out){
 		out.println(line);
 		out.flush();
-		line = "";		
+		line = null;		
 	};
 
 	return {
@@ -555,15 +612,18 @@ this.csvWriter = function(config){
 			
 			var contentlist = config.contentlist
 			if(!contentlist){
-				if(config.query)
-					contentlist = WGA.database().query("hql", config.query, {max:0})
+				if(config.query){
+					if(typeof(config.query)=="function")
+						contentlist = config.query(config.searchterm);
+					else contentlist = WGA.database().query("hql", config.query, {max:0})
+				}
 				else contentlist = WGA.database().query("hql", "content.structentry.parententry.key=:structkey", {max:0}, {structkey:STRUCTKEY})
 			}
 			
 			// headline:
 			if(config.header!==false){
 				var items = itemlist.iterator();
-				var line = "";
+				var line = null;
 				while(items.hasNext()){
 					var item = items.next();
 					var label = (typeof(item)=="string" ? item : item.label)
@@ -589,7 +649,7 @@ this.csvWriter = function(config){
 							else value = doc.item(item);
 						}
 						else {
-							value = item.value(doc)
+							value = item.value.call(doc, doc)
 						}
 					}
 					catch(e){
@@ -605,4 +665,110 @@ this.csvWriter = function(config){
 
 		}
 	}
+}
+
+/*
+ *	CSV Reader (Importer)
+ *	Config options:
+ *		columns:				Array column definitions. Required.
+ *		dateFormat:				Optional date format. If empty yyyy-MM-dd HH:mm:SS is used.
+ *		numberFormat:			Optional number format. If empty # ist used.
+ *		skiplines:				Number of lines to skip. Default = 0.
+ *		divider:				Column divider. Default is Semicolon
+ *		process(data, line):		Function called for each line in input stream. Required.
+ *		onerror(line, key, msg):	Optional function called on errors. Set to null to ignore erors
+ *
+ *	Column Definition (config.columns):
+ *		Each column is either a Sting or Object. If it is Object !=null the following properties are assumed:
+ *			key:	The column id
+ *			type: 	optional - text|date|number|boolean - defaults to text
+ *		If it is String the format "key(type)" is allowed. Otherwise the String is taken as key with type=text as format.
+ *		null columns are ignored
+ *
+ *	Sampe usages:
+ *		AFW.Util.csvReader({
+ *			columns: ["title", {key:"created",type:"date"}, null, "ean", "price"],
+ *			onerror: null,	// ignore errors
+ *			process: function(data){...}
+ *		}).read(inputStreamOrFile [,encoding])
+ */
+this.csvReader = function(config){
+
+	var skiplines = config.skiplines || 0;
+	var divider = config.divider || ";";
+
+	if(typeof(config.onerror)=="undefined"){
+		config.onerror=function(line, key, msg){
+	 		console.error("line " + line, "[" + key + "]:", msg);
+	 	}
+	}
+	
+	return {
+
+		read: function(stream_or_file, encoding){
+	
+			var line;
+			var inputstream;
+			if(stream_or_file instanceof Packages.java.io.File)
+				inputstream = new Packages.java.io.FileInputStream(stream_or_file);
+			else inputstream = stream_or_file;
+			 
+			var reader = new Packages.java.io.BufferedReader(new Packages.java.io.InputStreamReader(inputstream, encoding || "UTF-8"));
+			
+			for(let i=0; i<skiplines; i++)
+				reader.readLine()
+				
+			for(let i=1; line = reader.readLine(); i++){
+				var values = line.split(divider);
+				var data = {};
+				
+				for(let [index, column] in config.columns){
+					
+					if(typeof(column)=="string"){
+						// check for "key(type)" format:
+						var match = /(\w+)\s*\(\s*(\w+)\s*\)/.exec(column)
+						if(match && match.length>2){
+							column={
+								key: match[1],
+								type: match[2].toLowerCase()
+							}
+						}
+						else column = {
+							key: column
+						}
+					}
+					if(!column.key)
+						continue;
+
+					var value = values[index]
+					if(typeof(value)=="undefined"){
+						if(config.onerror)
+							config.onerror(i, column.key, "unable to find column");
+						continue;
+					}
+					value = value.trim();
+					if(value.charAt(0)=="\"")
+						value = value.substring(1, value.length-1);
+					
+					try{
+						if(column.type=="date")
+							value = WGA.parseDate(value, config.dateFormat || "yyyy-MM-dd HH:mm:ss")
+						else if(column.type=="number")
+							value = WGA.parseNumber(value, config.numberFormat || "#")
+						else if(column.type=="boolean"){
+							value = (value.toLowerCase()=="true" || value=="1") ? true : false;
+						}
+						data[column.key]=value
+					}
+					catch(e){
+						if(config.onerror)
+							config.onerror(i, column.key, e);
+					}
+				
+				}
+				config.process(data, i);
+			}
+		}
+	}
+	
 }

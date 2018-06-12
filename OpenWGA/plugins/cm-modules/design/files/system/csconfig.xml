@@ -28,6 +28,10 @@
       <name>DefaultItemEncoding</name>
       <value>html</value>
     </de.innovationgate.wga.common.beans.csconfig.v1.PublisherOption>
+    <de.innovationgate.wga.common.beans.csconfig.v1.PublisherOption>
+      <name>FileExpirationMinutes</name>
+      <value>10080</value>
+    </de.innovationgate.wga.common.beans.csconfig.v1.PublisherOption>
   </publisherOptions>
   <encoderMappings/>
   <elementMappings/>
@@ -65,10 +69,10 @@
       <uniqueName>de.innovationgate.cm-modules</uniqueName>
       <version>
         <majorVersion>7</majorVersion>
-        <minorVersion>3</minorVersion>
-        <maintenanceVersion>0</maintenanceVersion>
+        <minorVersion>5</minorVersion>
+        <maintenanceVersion>5</maintenanceVersion>
         <patchVersion>0</patchVersion>
-        <buildVersion>651</buildVersion>
+        <buildVersion>672</buildVersion>
       </version>
     </id>
     <title>OpenWGA Content Management Modules</title>

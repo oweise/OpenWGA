@@ -50,6 +50,7 @@ import de.innovationgate.wgpublisher.modules.formsources.UserProfileFormSourceMo
 import de.innovationgate.wgpublisher.modules.imagescaler.ImgScalrFactoryModuleDefinition;
 import de.innovationgate.wgpublisher.modules.imagescaler.ImgScalrScalerModuleDefinition;
 import de.innovationgate.wgpublisher.modules.joboptions.JobOptionsModuleDefinition;
+import de.innovationgate.wgpublisher.modules.lang.BrowserLocaleLanguageBehaviourModuleDefinition;
 import de.innovationgate.wgpublisher.modules.lang.DynamicLanguageBehaviourModuleDefinition;
 import de.innovationgate.wgpublisher.modules.lang.OnlyDefaultLanguageBehaviourModuleDefinition;
 import de.innovationgate.wgpublisher.modules.lang.StaticLanguageBehaviourModuleDefinition;
@@ -80,6 +81,7 @@ import de.innovationgate.wgpublisher.modules.serviceapis.SessionManagerApiModule
 import de.innovationgate.wgpublisher.modules.serviceapis.SrcSetCreatorApiModuleDefinition;
 import de.innovationgate.wgpublisher.modules.serviceapis.TempDownloadApiModuleDefinition;
 import de.innovationgate.wgpublisher.modules.vlink.ContentVirtualLinkResolverModuleDefinition;
+import de.innovationgate.wgpublisher.modules.vlink.ContextExpressionVirtualLinkResolverModuleDefinition;
 import de.innovationgate.wgpublisher.modules.vlink.ExternalVirtualLinkResolverModuleDefinition;
 import de.innovationgate.wgpublisher.modules.vlink.FileVirtualLinkResolverModuleDefinition;
 import de.innovationgate.wgpublisher.modules.vlink.LegacyFileVirtualLinkResolverModuleDefinition;
@@ -139,6 +141,7 @@ public class WGARegistrar implements ModuleRegistrar {
         registry.addModuleDefinition(new StaticLanguageBehaviourModuleDefinition());
         registry.addModuleDefinition(new DynamicLanguageBehaviourModuleDefinition());
         registry.addModuleDefinition(new OnlyDefaultLanguageBehaviourModuleDefinition());
+        registry.addModuleDefinition(new BrowserLocaleLanguageBehaviourModuleDefinition());
         
         // WebTML form sources
         registry.addModuleDefinition(new NoneFormSourceModuleDefinition());
@@ -188,6 +191,7 @@ public class WGARegistrar implements ModuleRegistrar {
         registry.addModuleDefinition(new LocalFileVirtualLinkResolverModuleDefinition());
         registry.addModuleDefinition(new NameVirtualLinkResolverModuleDefinition());
         registry.addModuleDefinition(new PrimaryFileVirtualLinkResolverModuleDefinition());
+        registry.addModuleDefinition(new ContextExpressionVirtualLinkResolverModuleDefinition());
         
         // Job options
         registry.addModuleDefinition(new JobOptionsModuleDefinition());

@@ -131,7 +131,7 @@ DBM = function(){
 		,historyBack: function(){
 			history.shift();
 			var params = history[0];
-			console.log("back to " + params, history)
+			//console.log("back to " + params, history)
 			if(params)
 				WGA.event.fireEvent("PS-app-selected", "*", params)
 		}
@@ -210,7 +210,7 @@ DBM.dialog = function(title, url, params, animel){
 	var w = new Ext.Window({
 		modal: true,
 		title: title,
-		width: 800,
+		width: 850,
 		y: 100,
 		height: 500,
 		autoScroll: true
@@ -362,3 +362,12 @@ DBM.dbExplorer={}
 // Deprecated.
 // should be removed in final version	
 switchToObject = DBM.switchToObject
+
+window.addEventListener('load', function () {
+	Notification.requestPermission(function (status) {
+	    // This allows to use Notification.permission with Chrome/Safari
+	    if (Notification.permission !== status) {
+			Notification.permission = status;
+	    }
+	});
+});

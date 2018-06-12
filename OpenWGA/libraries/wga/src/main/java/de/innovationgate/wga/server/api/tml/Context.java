@@ -27,6 +27,7 @@ package de.innovationgate.wga.server.api.tml;
 
 import java.io.UnsupportedEncodingException;
 import java.util.List;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
@@ -41,6 +42,7 @@ import de.innovationgate.webgate.api.WGHierarchicalDatabase;
 import de.innovationgate.wga.common.CodeCompletion;
 import de.innovationgate.wgpublisher.webtml.portlet.PortletEvent;
 import de.innovationgate.wgpublisher.webtml.utils.TMLContext;
+import de.innovationgate.wgpublisher.webtml.utils.TagInfo;
 
 /**
  * The Context is the base object of the WebTML runtime. It combines two purposes:
@@ -187,6 +189,12 @@ public interface Context {
      */
     @CodeCompletion(preferredCase="fileURL")
     public abstract String fileurl(String dbKey, String containerName, String fileName) throws WGException;
+
+    @CodeCompletion(preferredCase="fileDataURL")
+    public abstract String filedataurl(String fileName, Map<String,String> config) throws WGException;
+
+    @CodeCompletion(preferredCase="fileDataURL")
+    public abstract String filedataurl(String fileName) throws WGException;
 
     /**
      * Returns the JavaEE object representing the current HTTP browser session
@@ -447,8 +455,18 @@ public interface Context {
     public abstract boolean istagidvalid(String tagid);
 
     /**
+     *  Returns if the contents of an item or WebTML variable is regarded "false".
+     * @param varname The name of the item or WebTML variable
+     * @throws WGAPIException
+     */
+    @CodeCompletion(preferredCase="isFalse")
+    public abstract boolean isfalse(String varname) throws WGAPIException;
+
+    /**
      *  Returns if the contents of an item or WebTML variable is regarded "true".
-     *  Values that are regarded true: JavaScript/Java boolean value of true, the string "true", a numeric value of 1 or -1
+     *  Values that are regarded true depends on version complience:
+     *  before 7.2: JavaScript/Java boolean value of true, the string "true", a numeric value of 1 or -1
+     *  7.2 and later: like in javascript
      * @param varname The name of the item or WebTML variable
      * @throws WGAPIException
      */
@@ -696,13 +714,25 @@ public interface Context {
     
     /**
      * Retrieves a WebTML tag information
+     * @Deprecated use tag(id).getInfo() instead
      * @param tagId id of the tag to retrieve the info from
-     * @param name Nmae of the info field
+     * @param name Name of the info field
      * @throws WGAPIException
      */
     @CodeCompletion(preferredCase="tagInfo")
+    @Deprecated
     public abstract Object taginfo(String tagId, String name) throws WGAPIException;
     
+    /**
+     * Retrieves a WebTML tag information as Object
+     * @param tagId id of the tag to retrieve the info from
+     * @throws WGAPIException
+     */
+    @CodeCompletion(preferredCase="tag")
+    public abstract TagInfo tag(String tagId) throws WGAPIException;
+    @CodeCompletion(preferredCase="tag")
+    public abstract TagInfo tag() throws WGAPIException;
+
     /**
      * Returns a TMLForm object representing the WebTML form of the given ID
      * @param id id of the form

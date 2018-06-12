@@ -56,7 +56,7 @@ public class LuceneIndexConfiguration extends ConfigBean {
 	
     @Attribute(required=false)
     private boolean indexFileContentOnDocuments = false;
-	
+
 	public boolean isIndexFileContentOnDocuments() {
         return indexFileContentOnDocuments;
     }
@@ -64,7 +64,7 @@ public class LuceneIndexConfiguration extends ConfigBean {
     public void setIndexFileContentOnDocuments(boolean indexFileContentOnDocuments) {
         this.indexFileContentOnDocuments = indexFileContentOnDocuments;
     }
-
+    
     public List<String> getIndexEnhancers() {
         return indexEnhancers;
     }

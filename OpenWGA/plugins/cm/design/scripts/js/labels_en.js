@@ -419,7 +419,7 @@ $L.RTFToolbar={
 	undo: "Undo",
 	redo: "Redo",
 	paste: "Paste without Formats",
-	removeFormatting: "Remove all Formats",
+	removeFormatting: "Cleanup HTML",
 	bold: "Bold",
 	italic: "Italic",
 	underline: "Underline",
@@ -447,5 +447,6 @@ $L.linktype={
 	intfile: "Attachment from this document",
 	extfile: "Attachment from any document",
 	file: "Attachment from file container",
-	primaryfile: "Primary Attachment from Document"
+	primaryfile: "Primary Attachment from Document",
+	exp: "Context-Expression"
 }

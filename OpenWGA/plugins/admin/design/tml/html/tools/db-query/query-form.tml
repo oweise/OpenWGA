@@ -33,7 +33,7 @@
 	tmlform.removeField("items");
 </tml:action>
 
-<tml:form id="_queryParameter" source="portletsessionvars" htmlinput="ignore">
+<tml:form id="_queryParameter" source="portlet" htmlinput="ignore">
 
 	<tml:script>
 		if(_uid && tmlform.db!=_uid){
@@ -90,7 +90,7 @@
 					<label>Query Type:</label>					
 					<div class="data">				
 						<div style="width:100%">	
-							<tml:input type="select" name="type" options="hql,sql,lucene"
+							<tml:input type="select" name="type" options="hql,fullhql,sql,lucene"
 								validation="$E_VALUE!=''"
 								message="Please select or enter a query type"
 							/>

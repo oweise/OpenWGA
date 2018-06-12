@@ -150,6 +150,14 @@ public class MySqlDatabaseServer extends WGDatabaseServer implements JDBCDatabas
 			if (props == null) {
 				props = new Properties();
 			}
+			
+			Map<String,String> so = serverOptionReader.getOptions();
+			for(Map.Entry<String, String> entry: so.entrySet()){
+				if(entry.getKey().startsWith("jdbc.")){
+					props.put(entry.getKey().substring("jdbc.".length()), entry.getValue());
+				}
+			}
+			
 			if (!props.containsKey("user")) {
 				props.put("user", masterUser);
 			}
@@ -408,8 +416,8 @@ public class MySqlDatabaseServer extends WGDatabaseServer implements JDBCDatabas
         
         ModuleDefinition serverDef = WGFactory.getModuleRegistry().getModuleDefinition(DatabaseServerModuleType.class, MySqlDatabaseServer.class);
         OptionReader serverOptionReader = OptionReader.create(getOptions(), serverDef);
-       try {
-        _usePool = (Boolean) serverOptionReader.readOptionValueOrDefault(DatabaseServer.OPTION_SHAREDPOOL);
+        try {
+        	_usePool = (Boolean) serverOptionReader.readOptionValueOrDefault(DatabaseServer.OPTION_SHAREDPOOL);
         }
         catch (OptionConversionException e) {
             throw new WGBackendException("Exception reading server configuration", e);

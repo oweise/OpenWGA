@@ -24,11 +24,11 @@
 ## LICENSE END #################################################################
 
 <tml:script>
-	_opts = CMM.settingList("options");	//	itemList(WGA.scoped('options'));
+	_opts = CMM.settingList("options");
 	_divider = CMM.setting('divider')=="single-line" ? " " : null;
 	
 	_message = CMM.setting('validationmessage');
-	_fieldname = CMM.setting('fieldname');
+	_fieldname = CMM.setting('fieldname').trim();
 	_label = CMM.setting("label");
 
 	var validation = CMM.setting('validation')
@@ -52,6 +52,9 @@
 	fieldinfo.put("name", _fieldname);
 	fieldinfo.put("type", fieldtype||'text');
 
+	if(!WGA.createList(['select', 'checkbox', 'radio']).contains(fieldtype))
+		_opts = null;
+
 	tmlform.processcontext.get("forminfo").put(WGA.scoped(""), fieldinfo);		
 </tml:script>
 
@@ -61,8 +64,8 @@
 		<tml:[setting] o_name="label"/>
 	</label>
 	<div class="data">
-		<tml:input name="{CMM.setting('fieldname')}"
-			focus="{isFirstLoop() && CMM.setting('fieldtype')!='date'}"
+		<tml:input name="{_fieldname}"
+			focus="{CMM.setting('focus')||false}"
 			validation="{_validation||true}"
 			message="{_message}"
 			labeled="true"
@@ -74,6 +77,9 @@
 		>
 			<tml:case condition="CMM.setting('fieldtype')=='date'">
 				data-year-range="<tml:[setting] o_name="year_range" o_default="-10:+10"/>"
+			</tml:case>
+			<tml:case condition="CMM.setting('placeholder')">
+				placeholder="<tml:[setting] o_name="placeholder"/>"
 			</tml:case>
 		</tml:input>
 	</div>

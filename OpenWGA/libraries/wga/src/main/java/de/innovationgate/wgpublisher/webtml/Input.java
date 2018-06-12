@@ -49,6 +49,7 @@ import de.innovationgate.webgate.api.WGDocument;
 import de.innovationgate.webgate.api.WGException;
 import de.innovationgate.wga.common.beans.hdbmodel.Content;
 import de.innovationgate.wga.common.beans.hdbmodel.Relation;
+import de.innovationgate.wga.server.api.WGA;
 import de.innovationgate.wgpublisher.WGACore;
 import de.innovationgate.wgpublisher.expressions.ExpressionEngine;
 import de.innovationgate.wgpublisher.expressions.ExpressionEngineFactory;
@@ -191,7 +192,7 @@ public class Input extends ActionBase implements DynamicAttributes {
         
         
         boolean readonlyMode = false;
-        String computedMode = "";
+        String computedMode = getMode();
         
         String cssClass = this.getCssclass();
         if (cssClass != null) {
@@ -262,46 +263,80 @@ public class Input extends ActionBase implements DynamicAttributes {
                 // clear results
                 this.clearResult();
                 // display optionText not optionValues
-                if (type.equals("select") || type.equals("checkbox") || type.equals("radio") || type.equals("boolean")) {
-                    List<String> textValues = new ArrayList<String>();
-                    Iterator<InputOption> options = this.retrieveInputOptions().iterator();
-                    if (options.hasNext()) { 
+                
+                if (type.equals("boolean")) {
+                	String ret="";
+                    List<InputOption> opts = this.retrieveInputOptions();
+                	
+                    Boolean boolValue = Boolean.FALSE;
+                    if (values.size() >= 1) {
+                        Object theValue = values.get(0);
+                        if (theValue instanceof String) {
+                            boolValue = Boolean.valueOf((String) theValue);
+                        }
+                        else if (theValue instanceof Boolean) {
+                            boolValue = (Boolean) theValue;
+                        }
+                    }
+                    
+                    if(opts.size()==0){
+                    	getStatus().encode = "none";
+                    	ret = "<img align=\"bottom\" src=\"" + getWGPPath() + "/static/images/" + boolValue.toString() + ".png\"> ";
+                    }
+                    else if(opts.size()==1){
+                    	getStatus().encode = "none";
+                        ret = "<span";
+                        if(!boolValue)
+                        	ret += " style=\"text-decoration:line-through\"";
+                        ret += ">";
+                		InputOption opt = opts.get(0);
+                		ret += opt.getText();
+                		ret += "</span>";
+                	}
+                    else{
+                        Iterator<InputOption> options = opts.iterator();
                         while (options.hasNext()) {
                             InputOption option = (InputOption) options.next();
                             List<String> stringValues = WGUtils.toString(values);
-                            
-                            if (stringValues.contains(option.getValue()) || (values.size() == 0 && TMLForm.RELATION_NULLPLACE_HOLDER.equals(option.getValue()))) {
-                                textValues.add(option.getText());
+                            if (stringValues.contains(option.getValue())) {
+                                ret = option.getText();
+                                break;
                             }
                         }
                     }
+                	
+                	this.setResult(ret);
+                }
+                
+                else if (type.equals("select") || type.equals("checkbox") || type.equals("radio")) {
+                    List<String> textValues = new ArrayList<String>();
                     
-                    // Special view output for booleans without options: Display true/false images as suffix (so the do not get encoded)
-                    else if (type.equals("boolean")) {
-                        Boolean boolValue = Boolean.FALSE;
-                        if (values.size() >= 1) {
-                            Object theValue = values.get(0);
-                            if (theValue instanceof String) {
-                                boolValue = Boolean.valueOf((String) theValue);
-                            }
-                            else if (theValue instanceof Boolean) {
-                                boolValue = (Boolean) theValue;
-                            }
-                        }
-                                           
-                        getStatus().encode = "none";
-                        textValues.add("<img align=\"bottom\" src=\"" + getWGPPath() + "/static/images/" + boolValue.toString() + ".png\">");
-                    
-                    }
-                    
-                    
-                    if (textValues.size() > 0) {
+                    List<InputOption> options = this.retrieveInputOptions();
+                    if(options.size()>0){
+                        // prepare regular list so we can use WGA.alias()
+                    	ArrayList<String> optionsValues = new ArrayList<String>();
+                    	String relationNullPlaceholderOptionValue=null;
+                    	for(InputOption o: options){
+                    		optionsValues.add(o.getText()+"|"+o.getValue());
+                    		if(TMLForm.RELATION_NULLPLACE_HOLDER.equals(o.getValue())){
+                    			relationNullPlaceholderOptionValue = o.getText();
+                    		}
+                    	}
+                    	if(values.size()==0 && relationNullPlaceholderOptionValue!=null){
+                			textValues.add(relationNullPlaceholderOptionValue);
+                		}
+                    	else{
+	                    	WGA wga = WGA.get();
+	                        List<String> stringValues = WGUtils.toString(values);
+	                        textValues.addAll(wga.aliases(stringValues, optionsValues));
+                    	}
                         this.setResult(textValues);
                         getStatus().divider = getMultiValueDivider();
                     }
                     else {
                         this.setResult(values);
                     }
+
                 }
                 else {
                     // do not render original value if type is password
@@ -333,13 +368,13 @@ public class Input extends ActionBase implements DynamicAttributes {
             }     
         }
         else {
-            WGDocument doc = this.getTMLContext().getdocument();
-            if (doc.hasItem(name)) {
-                values = this.getTMLContext().itemlist(name);    
-            } else {
-                values = new ArrayList<Object>();
-                values.add(defaultvalue);                
-            }
+        	values = new ArrayList<Object>();
+        	String[] params = this.getTMLContext().getrequest().getParameterValues(name);
+        	if(params!=null){        		
+        		for(String param: params)
+        			values.add(param);                
+        	}
+        	else values.add(defaultvalue);
         }
                   
         // Disable encoding, since this tag is in edit or readonly mode
@@ -363,9 +398,16 @@ public class Input extends ActionBase implements DynamicAttributes {
         
         // Render
         try {
-            if (type.equals("text") || type.equals("hidden") || type.equals("password")) {
+            if (type.equals("text") || type.equals("password")) {
                 renderSimpleInput(type, name, format, cssClass, cssStyle, singleValue, tagContent, disabledString);
             }   
+            else if(type.equals("hidden")) {
+            	if(isMultipleInput()){
+            		String renderedValue = WGUtils.serializeCollection(values, "~~~");
+            		renderSimpleInput(type, name, format, cssClass, cssStyle, renderedValue, tagContent, disabledString);
+            	}
+            	else renderSimpleInput(type, name, format, cssClass, cssStyle, singleValue, tagContent, disabledString);
+            }
             else if(type.equals("boolean")) {
                 renderBoolean( name, cssClass, cssStyle, formBase, singleValue, tagContent, disabledString);
             }   
@@ -410,7 +452,7 @@ public class Input extends ActionBase implements DynamicAttributes {
         }
         
         if(formBase!=null && this.getFocus().equals("true")){
-        	this.appendResult("<script type=\"text/javascript\">try{document.forms['" + formBase.getId() + "'].elements['"+this.getName()+"'].focus()}catch(e){}</script>");
+        	this.appendResult("<script>try{document.forms['" + formBase.getId() + "'].elements['"+this.getName()+"'].focus()}catch(e){}</script>");
         }
         
         getStatus().divider = "";
@@ -436,7 +478,7 @@ public class Input extends ActionBase implements DynamicAttributes {
 
     private List<InputOption> retrieveInputOptions() throws WGAPIException {
         
-        // Fetch options. Possible sources: 1. directly from item (Attribute optionslist) 2. comma-separated string (Attribute options) 3. HDBModel relation targets
+        // Fetch options. Possible sources: 1. directly from item (Attribute optionsitem) 2. comma-separated string (Attribute options) 3. HDBModel relation targets
         String optionsItem = getOptionsitem();
         List<String> rawOptionsList = null;
         if (!WGUtils.isEmpty(optionsItem)) {
@@ -839,6 +881,14 @@ public class Input extends ActionBase implements DynamicAttributes {
 			}
 		}
 
+        boolean doLabelling = stringToBoolean(getLabeled());
+        
+        // We need an id for option inputs so we can reference them from their labels
+        String theId = getId();
+        if (doLabelling && theId == null) {
+            theId = "option" + UIDGenerator.generateUID();
+        }
+
         List<InputOption> options = this.retrieveInputOptions();
         
         boolean renderCheckbox = false;
@@ -849,18 +899,29 @@ public class Input extends ActionBase implements DynamicAttributes {
             renderCheckbox = true;
         }
         
+        int idx=0;
         if (!renderCheckbox) {
             Iterator<InputOption> optionsIt = options.iterator();
             String optionValue;
             String optionText;        
     		while (optionsIt.hasNext()) {
+            	idx++;
                 InputOption option = optionsIt.next();
     			optionValue = option.getValue();
                 optionText = option.getText();
-    	
+			    String optionId = null;
+
+    			if (theId != null) {
+    			    optionId = theId + "_" + idx;
+    			}
+
     			String htmlDivider = getMultiValueDivider();
     	
-    			this.appendResult("<input").appendResult(buildDynamicHtmlAttributes()).appendResult(" type=\"radio\" name=\"").appendResult(name).appendResult("\" ");
+    			this.appendResult("<input").appendResult(buildDynamicHtmlAttributes());
+    			if(optionId!=null){
+    				this.appendResult(" id=\"" + optionId + "\"");
+    			}
+    			this.appendResult(" type=\"radio\" name=\"").appendResult(name).appendResult("\" ");
     			this.appendResult(" value=\"").appendResult(optionValue).appendResult("\" ");
     			
     			createChangeActionJS(name, form, "onclick");
@@ -870,7 +931,14 @@ public class Input extends ActionBase implements DynamicAttributes {
     					this.appendResult(" checked=\"true\"");
     				}								
     			}			
-    			this.appendResult(cssClass).appendResult(cssStyle).appendResult(disabled).appendResult(tagContent).appendResult(">").appendResult(optionText);
+    			this.appendResult(cssClass).appendResult(cssStyle).appendResult(disabled).appendResult(tagContent).appendResult(">");
+
+    			if (doLabelling && optionId!=null) {
+    			    this.appendResult("<label for=\"").appendResult(optionId).appendResult("\">").appendResult(optionText).appendResult("</label>");
+    			}
+    			else {
+    			    this.appendResult(optionText);
+    			}
     			if (optionsIt.hasNext()) {
     				appendResult(htmlDivider);
     			}
@@ -880,7 +948,11 @@ public class Input extends ActionBase implements DynamicAttributes {
         
         // If no options given Build a single checkbox representing "true"
         else {
-            this.appendResult("<input").appendResult(buildDynamicHtmlAttributes()).appendResult(" type=\"checkbox\" name=\"").appendResult(name).appendResult("\" ");
+            this.appendResult("<input").appendResult(buildDynamicHtmlAttributes());
+            if (theId!=null) {
+            	this.appendResult(" id=\"" + theId + "\"");
+            }
+            this.appendResult(" type=\"checkbox\" name=\"").appendResult(name).appendResult("\" ");
             this.appendResult(" value=\"true\" ");
             
             createChangeActionJS(name, form, "onclick");
@@ -890,8 +962,15 @@ public class Input extends ActionBase implements DynamicAttributes {
             }
             
             this.appendResult(cssClass).appendResult(cssStyle).appendResult(disabled).appendResult(tagContent).appendResult(">");
+
             if (options.size() == 1) {
-                this.appendResult(options.get(0).getText());
+            	String optionText = options.get(0).getText();
+    			if (doLabelling) {
+    			    this.appendResult("<label for=\"").appendResult(theId).appendResult("\">").appendResult(optionText).appendResult("</label>");
+    			}
+    			else {
+    			    this.appendResult(optionText);
+    			}
             }
             
         }

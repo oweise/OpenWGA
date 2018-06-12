@@ -26,10 +26,12 @@
 package de.innovationgate.wga.config;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
 import org.simpleframework.xml.Attribute;
+import org.simpleframework.xml.Element;
 import org.simpleframework.xml.ElementList;
 import org.simpleframework.xml.Root;
 
@@ -39,9 +41,6 @@ import org.simpleframework.xml.Root;
 @Root(strict=false)
 public class VirtualHost extends IdentifiableConfigBean {
     
-    /**
-     * 
-     */
     private static final long serialVersionUID = 1L;
 
     public static final String UID_ALL_DATABASES = "$all";
@@ -59,7 +58,13 @@ public class VirtualHost extends IdentifiableConfigBean {
     @ElementList
     @NotNull
     private List<String> allowedDatabases = new ArrayList<String>();
-    
+
+    @Attribute (required=false)
+    private boolean allowAdminApps = true;    
+
+    @Attribute (required=false)
+    private boolean allowAuthoringApps = true;    
+
     @ElementList
     @NotNull
     private List<String> serverAliases = new ArrayList<String>();
@@ -73,6 +78,12 @@ public class VirtualHost extends IdentifiableConfigBean {
 
     @Attribute (required=false)
     private boolean hideHomepageURL = false;
+
+    @Element(required=false)
+    private String robots_txt = "User-agent: *\nAllow: *";
+
+    @Element(required=false)
+    private String preferedLanguages = null;
 
     public VirtualHost() {
         super();
@@ -149,4 +160,32 @@ public class VirtualHost extends IdentifiableConfigBean {
         this.hideHomepageURL = proxyDefaultDatabaseInURL;
     }
 
+    public String getRobotsTxt(){
+    	return robots_txt;
+    }
+    public void setRobotsTxt(String text){
+    	this.robots_txt = text;
+    }
+
+    public void setAllowAdminApps(boolean allow){
+    	this.allowAdminApps=allow;
+    }
+    public boolean isAllowAdminApps(){
+    	return allowAdminApps;
+    }
+    
+    public void setAllowAuthoringApps(boolean allow){
+    	this.allowAuthoringApps=allow;
+    }
+    public boolean isAllowAuthoringApps(){
+    	return allowAuthoringApps;
+    }
+
+    public String getPreferedLanguages(){
+    	return preferedLanguages;
+    }
+    public void setPreferedLanguages(String lang){
+    	preferedLanguages=lang;
+    }
+    
 }

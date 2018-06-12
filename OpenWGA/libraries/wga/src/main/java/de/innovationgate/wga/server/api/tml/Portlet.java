@@ -90,7 +90,7 @@ public interface Portlet {
      * @param params Parameters added to the event
      */
     @CodeCompletion(preferredCase="fireEvent")
-    void fireevent(String eventName, Map<String, Object> params);
+    public abstract void fireevent(String eventName, Map<String, Object> params);
 
     /**
      * Forces a state on a portlet
@@ -132,6 +132,12 @@ public interface Portlet {
     @CodeCompletion(preferredCase="name",isProperty=true)
     public abstract String getname();
 
+    /**
+     * Returns the key of the portlet
+     */
+    @CodeCompletion(preferredCase="portletkey",isProperty=true)
+    public abstract String getportletkey();
+    
     /**
      * Returns the absolute path of this portlet, consisting of a path of from names of all portlets up to the root 
      * @throws WGAPIException
@@ -361,4 +367,7 @@ public interface Portlet {
     @CodeCompletion(preferredCase="unregisterPortletForName")
     public abstract void unregisterportletforname(String name) throws WGAPIException;
 
+    @CodeCompletion(preferredCase="getController")
+    public abstract Object getcontroller() throws WGAPIException, WGException;
+    
 }

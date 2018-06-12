@@ -34,6 +34,7 @@ import javax.servlet.http.HttpServletRequest;
 
 import de.innovationgate.utils.WGUtils;
 import de.innovationgate.webgate.api.WGAPIException;
+import de.innovationgate.webgate.api.WGContent;
 import de.innovationgate.webgate.api.WGContentType;
 import de.innovationgate.webgate.api.WGDatabase;
 import de.innovationgate.webgate.api.WGException;
@@ -41,6 +42,7 @@ import de.innovationgate.webgate.api.WGUserDetails;
 import de.innovationgate.webgate.api.WGUserProfile;
 import de.innovationgate.wga.common.CodeCompletion;
 import de.innovationgate.wga.config.ContentStore;
+import de.innovationgate.wga.config.WGAConfiguration;
 import de.innovationgate.wga.server.api.tml.Context;
 import de.innovationgate.wga.server.api.tml.UserProfile;
 import de.innovationgate.wgpublisher.PersonalisationManager;
@@ -56,6 +58,7 @@ import de.innovationgate.wgpublisher.expressions.ExpressionEngineFactory;
 import de.innovationgate.wgpublisher.expressions.tmlscript.ManagedTMLScriptGlobalDefinition;
 import de.innovationgate.wgpublisher.expressions.tmlscript.TMLScriptGlobal;
 import de.innovationgate.wgpublisher.expressions.tmlscript.TMLScriptObjectMetadata;
+import de.innovationgate.wgpublisher.hdb.HDBModel;
 import de.innovationgate.wgpublisher.url.RequestIndependentDefaultURLBuilder;
 import de.innovationgate.wgpublisher.webtml.utils.TMLContext;
 import de.innovationgate.wgpublisher.webtml.utils.TMLUserProfile;
@@ -66,11 +69,31 @@ import de.innovationgate.wgpublisher.webtml.utils.TMLUserProfile;
 @CodeCompletion(methodMode=CodeCompletion.MODE_EXCLUDE)
 public class App extends Database {
 
+	public HDBModel HDBModel;
+	
     protected App(WGA wga, WGDatabase db) throws WGException {
         super(wga, db);
         
         if (!db.hasFeature(WGDatabase.FEATURE_FULLCONTENTFEATURES)) {
             throw new WGAServerException("Database '" + db.getDbReference() + "' is no application");
+        }
+        HDBModel = de.innovationgate.wgpublisher.hdb.HDBModel.getModel(db);
+    }
+
+    /**
+     * Returns a TMLScript global that is available for the current app
+     * This method allows to retrieve TMLScript globals with their name as method parameter. It can retrieve normal globals just like globals of design scope.
+     * This might contain native TMLScript objects which are not usable from Java.
+     * @param name Name the global
+     * @throws WGAPIException
+     */
+    public Object getGlobal(String name) throws WGException {
+        TMLScriptGlobal global = _wga.getCore().getTmlscriptGlobalRegistry().getGlobal(name, db());
+        if (global != null) {
+            return global.provide(_wga);
+        }
+        else {
+            return null;
         }
     }
     
@@ -202,8 +225,23 @@ public class App extends Database {
         return createEvent(WGUtils.deserializeCollection(eventPathStr, "/", true));
     }
 
+    public ApplicationEventBuilder createEvent(String eventPathStr, Map<Object, Object> params) throws WGException {
+    	return createEvent(eventPathStr).params(params);
+    }
+    
+    public void fireEvent(String eventPathStr, Map<Object, Object> params) throws WGException {
+    	createEvent(eventPathStr, params).fire();
+    }
+    public void fireEvent(String eventPathStr) throws WGException {
+    	createEvent(eventPathStr).fire();
+    }
+    
     /**
      * Registers a managed TMLScript app global variable, which will get created on demand from the TMLScript module of this Designs current base reference.
+     * 
+     * When called from TMLScript this method is "wrapped" to the following signature:
+     * 		managedGlobal(String name, DesignLocator, JavaScriptObject)
+     * 
      * @param name
      * @param scope The creation scope which determines, for which scope entity individual global objects will be provided. For example: Scope {@link ObjectScope#PORTLET} creates individual global objects for every request.   
      * @throws WGException
@@ -212,13 +250,23 @@ public class App extends Database {
         if (design.getTMLScriptModule() == null) {
             throw new WGAServerException("Design reference '" + design.getBaseReference().toString() + "' does not point to a TMLScript module");
         }
-        _wga.getCore().getTmlscriptGlobalRegistry().registerAppGlobal(ExpressionEngineFactory.getTMLScriptEngine().createGlobal(name, TMLScriptGlobal.TYPE_MANAGED, new ManagedTMLScriptGlobalDefinition(design.getBaseReference(), config)), db());
-        
+        if(config.getScope().needsWebsockets()){
+        	// check if websockets are enabled
+            if ((Boolean) _wga.getCore().getServicesServerOptionReader().readOptionValueOrDefault(WGAConfiguration.SERVEROPTION_SERVICE_WEBSOCKETS) == false) {
+                _wga.getLog().error("Websocket network service is disabled - unable to create managed global '" + name + "' of scope " + config.getScope());
+                return;
+            }        	
+        }
+
+        _wga.getCore().getTmlscriptGlobalRegistry().registerAppGlobal(ExpressionEngineFactory.getTMLScriptEngine().createGlobal(name, TMLScriptGlobal.TYPE_MANAGED, new ManagedTMLScriptGlobalDefinition(name, design.getBaseReference(), config)), db());
+
         // Check if there is something we should process on the prototype
         TMLScriptObjectMetadata metaData = ExpressionEngineFactory.getTMLScriptEngine().getTmlscriptObjectMetadata(_wga, design);
         if (config.getScope().isApplicationEventReceiver()) {
             for (Map.Entry<EventPath,String> entry : metaData.getAppEventListeners().entrySet()) {
-                _wga.getCore().getEventManager().registerEventReceiver(entry.getKey(), new ManagedGlobalEventReceiver(db().getDbReference(), name, entry.getValue()));
+            	ApplicationEventPath path = (ApplicationEventPath)entry.getKey();
+            	path.setDbKey(getDbKey());	// ensure correct app (dbkey) is used.
+                _wga.getCore().getEventManager().registerEventReceiver(path, new ManagedGlobalEventReceiver(getDbKey(), name, entry.getValue()));
             }
         }
         
@@ -251,6 +299,22 @@ public class App extends Database {
         
     }
     
-    
+    /**
+     * TMLContext handling for App
+     * @throws WGException
+     */
+    public Context context() throws WGException{
+    	return createTMLContext();
+    }
+    public Context context(WGContent c) throws WGException{
+    	return createTMLContext().context(c);
+    }
+    public Context context(String expression) throws WGException{
+    	return createTMLContext().context(expression);
+    }
+    public Context context(String expression, boolean returnContextOnError) throws WGException{
+    	return createTMLContext().context(expression, returnContextOnError);
+    }
+
 
 }

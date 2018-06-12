@@ -48,8 +48,10 @@ import de.innovationgate.webgate.api.WGScriptModule;
 import de.innovationgate.webgate.api.WGTMLModule;
 import de.innovationgate.webgate.api.WGUnavailableException;
 import de.innovationgate.wga.common.beans.csconfig.v1.MediaKey;
+import de.innovationgate.wga.config.VirtualHost;
 import de.innovationgate.wgpublisher.WGPDispatcher.URLID;
 import de.innovationgate.wgpublisher.filter.WGAFilter;
+import de.innovationgate.wgpublisher.filter.WGAVirtualHostingFilter;
 import de.innovationgate.wgpublisher.lang.LanguageBehaviour;
 import de.innovationgate.wgpublisher.lang.LanguageBehaviourTools;
 import de.innovationgate.wgpublisher.lang.RequestLanguageChooser;
@@ -66,7 +68,6 @@ public class WGPRequestPath {
     public static final String PATHCMD_ADMIN_TML = "admintml";
     public static final String PATHCMD_STATIC_TML = "statictml";
     public static final String PATHCMD_STATIC_RESOURCE = "static";
-    public static final String PATHCMD_BROWSER_INTERFACE = "bi";
     public static final String PATHCMD_STARTPAGE = "start";
     public static final String PATHCMD_TMLFORM = "tmlform";
     public static final int TYPE_INVALID = -1;
@@ -189,7 +190,7 @@ public class WGPRequestPath {
         URL redirectURL = enforceRedirectionRules(database, currentURL);                                    
         
         // currentURL differs from redirectURL - redirect necessary
-        if (redirectURL != null) {
+        if (redirectURL != null && !dispatcher.isBrowserInterface(request.getSession())) {
             pathType = TYPE_REDIRECT;
             resourcePath = redirectURL.toString();
             return;
@@ -346,7 +347,7 @@ public class WGPRequestPath {
             // If content was retrieved with struct key we check if the title path is correct. If not we force redirection to the correct version (#00003145)
             else if (getTitlePathURL().getStructKey() != null) {
                 List<String> correctTitlePath = tpm.buildTitlePath(this.content, mediaKey.getKey(), new RequestLanguageChooser(this.database, request));
-                if (!correctTitlePath.equals(getTitlePathURL().getEncodedTitles())) {
+                if (correctTitlePath==null || !correctTitlePath.equals(getTitlePathURL().getEncodedTitles())) {
                     completePath = false;
                 }
             }
@@ -395,7 +396,7 @@ public class WGPRequestPath {
     public static URL buildCompleteURL(HttpServletRequest request) throws MalformedURLException, URIException {
         
         StringBuffer url = new StringBuffer();
-        url.append(((StringBuffer) request.getAttribute(WGAFilter.REQATTRIB_ORIGINAL_URL)).toString());
+        url.append((String) request.getAttribute(WGAFilter.REQATTRIB_ORIGINAL_URL));
         String qs = request.getQueryString();
         if (qs != null) {
             url.append("?").append(qs);
@@ -435,23 +436,28 @@ public class WGPRequestPath {
         // Try to determine media key from URL, to see if we should do HTTP Login. This will only work with standard URLs.
         if (this.pathElements.size() >= 2) {
             readMediaKey(core, this.pathElements, 1);
-        if (mediaKey != null && mediaKey.isHttpLogin() || dbAttribHttpLogin.equals("true")) {
+	        if (mediaKey != null && mediaKey.isHttpLogin() || dbAttribHttpLogin.equals("true")) {
+	            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+	            response.setHeader("WWW-Authenticate", "Basic realm=\"" + database.getAttribute(WGACore.DBATTRIB_DOMAIN) + "\"");
+	            return;
+	        }
+        }
+        else if(dbAttribHttpLogin.equals("true")){
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setHeader("WWW-Authenticate", "Basic realm=\"" + database.getAttribute(WGACore.DBATTRIB_DOMAIN) + "\"");
-                return;
-        }
+            return;        	
         }
         
         // Redirect to login facility
-            if (request.getParameter("$ajaxInfo") == null) {
-                dispatcher.sendRedirect(response, dispatcher.getLoginURL(request, database, getCompleteURL()));
-            } else {
-                // this is an ajax call without login information - redirect to jsp and fire event LoginRequired
-                String loginRequiredEvent = de.innovationgate.wgpublisher.webtml.portlet.PortletEvent.LOGIN_REQUIRED_EVENT.toJavaScriptObject();
-                String encodedEvent = Base64.encodeWeb(loginRequiredEvent.getBytes());
-                dispatcher.sendRedirect(response, this.publisherURL + "/fireSystemEvent.jsp?event="  + encodedEvent);
-            }
+        if (request.getParameter("$ajaxInfo") == null) {
+            dispatcher.sendRedirect(request, response, dispatcher.getLoginURL(request, database, getCompleteURL()));
+        } else {
+            // this is an ajax call without login information - redirect to jsp and fire event LoginRequired
+            String loginRequiredEvent = de.innovationgate.wgpublisher.webtml.portlet.PortletEvent.LOGIN_REQUIRED_EVENT.toJavaScriptObject();
+            String encodedEvent = Base64.encodeWeb(loginRequiredEvent.getBytes());
+            dispatcher.sendRedirect(request,response, this.publisherURL + "/fireSystemEvent.jsp?event="  + encodedEvent);
         }
+    }
 
     private void determineSpecialPathCommand() {
         this.pathCommand = databaseKey;
@@ -467,7 +473,7 @@ public class WGPRequestPath {
                 this.pathType = TYPE_INVALID;
             }
         }
-        else if (this.pathCommand.equalsIgnoreCase(PATHCMD_STARTPAGE)) {
+        else if (this.pathCommand.equalsIgnoreCase(PATHCMD_STARTPAGE) && core.getWgaConfiguration().isStartPageEnabled()) {
         	this.pathType = TYPE_REDIRECT;
         	this.resourcePath = this.publisherURL + core.getStartPageURL();
         }
@@ -479,7 +485,7 @@ public class WGPRequestPath {
             this.pathType = TYPE_REDIRECT;
             this.resourcePath = this.publisherURL + "/wgadmin.jsp";
         }
-        else if (this.pathCommand.equals(PATHCMD_BROWSER_INTERFACE) || this.pathCommand.equals(PATHCMD_STATIC_RESOURCE) || this.pathCommand.equals(PATHCMD_TEMP_DOWNLOAD)) {
+        else if (this.pathCommand.equals(PATHCMD_STATIC_RESOURCE) || this.pathCommand.equals(PATHCMD_TEMP_DOWNLOAD)) {
         	this.pathType = TYPE_RESOURCE;
         	this.resourcePath = this.basePath;
         }
@@ -658,17 +664,20 @@ public class WGPRequestPath {
 		return contentKey;
 	}
 
-
-
-
-
-
 	/**
 	 * Gets the fileName
 	 * @return Returns a String
 	 */
 	public String getFileName() {
 		return fileName;
+	}
+
+	/**
+	 * Gets the queryString
+	 * @return Returns a String
+	 */
+	public String getQueryString() {
+		return queryString;
 	}
 
 
@@ -788,13 +797,21 @@ public class WGPRequestPath {
     }
 	
 	public String expandToCompletePath(HttpServletRequest req) throws WGAPIException, UnsupportedEncodingException {
-		
-	    StringBuffer path = new StringBuffer(this.publisherURL);
-	    path.append("/").append(this.databaseKey).append("/");
-	    
+
 	    if (this.pathType != TYPE_TITLE_PATH && this.pathType != TYPE_TML) {
 	        return null;
 	    }
+
+		String defaultDbKey=null;		
+		VirtualHost vhost = (VirtualHost) req.getAttribute(WGAVirtualHostingFilter.REQUESTATTRIB_VIRTUAL_HOST);
+		if(vhost!=null && vhost.isHideDefaultDatabaseInURL())
+			defaultDbKey = WGAVirtualHostingFilter.getDefaultDBKey(core, vhost);
+		
+		StringBuffer path = new StringBuffer(this.publisherURL);
+	    path.append("/");
+	    
+	    if(defaultDbKey==null || !defaultDbKey.equals(this.databaseKey))
+	    	path.append(this.databaseKey).append("/");
 	    
 	    // Determine the path to create from the title path configuration of the app (#00004183)
 	    TitlePathManager tpm = (TitlePathManager) this.database.getAttribute(WGACore.DBATTRIB_TITLEPATHMANAGER);
@@ -988,11 +1005,9 @@ public class WGPRequestPath {
      */
     private URL enforceRedirectionRules(WGDatabase db, URL currentURL) throws MalformedURLException {
         
-        
         String redirectProtocol = (String) db.getAttribute(WGACore.DBATTRIB_REDIRECTPROTOCOL);
         String redirectHost = (String) db.getAttribute(WGACore.DBATTRIB_REDIRECTHOST);
         String redirectPort = (String) db.getAttribute(WGACore.DBATTRIB_REDIRECTPORT);
-        
         
         if (redirectProtocol == null && redirectHost == null && redirectPort == null) {
             // no redirect configured
@@ -1126,13 +1141,13 @@ public class WGPRequestPath {
             }
             catch (AdminLoginNeededException e) {
                 if (request.getParameter("$ajaxInfo") == null) {
-                    dispatcher.sendRedirect(response, dispatcher.getAdminLoginURL(request, path.getCompleteURL()));
+                    dispatcher.sendRedirect(request, response, dispatcher.getAdminLoginURL(request, path.getCompleteURL()));
                 }
                 else {
                     // this is an ajax call without login information - redirect to jsp and fire event LoginRequired
                     String loginRequiredEvent = de.innovationgate.wgpublisher.webtml.portlet.PortletEvent.SESSION_IS_NEW_EVENT.toJavaScriptObject();
                     String encodedEvent = Base64.encodeWeb(loginRequiredEvent.getBytes());
-                    dispatcher.sendRedirect(response, path.publisherURL + "/fireSystemEvent.jsp?event="  + encodedEvent);
+                    dispatcher.sendRedirect(request, response, path.publisherURL + "/fireSystemEvent.jsp?event="  + encodedEvent);
                 }
                 
                 path.proceedRequest = false;

@@ -37,12 +37,16 @@ public class HTTP404Problem extends Problem implements AdditiveProblem<HTTP404Pr
     private Date _lastCall;
     private long _calls;
     private String _uri;
+    private String _url;
+    private String _host;
 
     public HTTP404Problem(ProblemPath path, ProblemText text, ProblemSeverity severity, ProblemOccasion occasion, Throwable throwable, List<MessageVariableProvider> providers) {
         super(path, text, severity, occasion, throwable, providers);
         _lastCall = new Date();
         _calls = 1;
         _uri = (String) getVariable("uri");
+        _url = (String) getVariable("completeurl");
+        _host = (String) getVariable("host");
     }
 
     @Override
@@ -61,6 +65,14 @@ public class HTTP404Problem extends Problem implements AdditiveProblem<HTTP404Pr
 
     public String getUri() {
         return _uri;
+    }
+
+    public String getUrl() {
+        return _url;
+    }
+
+    public String getHost() {
+        return _host;
     }
 
 }

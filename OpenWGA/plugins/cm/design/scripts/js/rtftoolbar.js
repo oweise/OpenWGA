@@ -192,12 +192,12 @@ BI.rtftoolbar=function(){
 		editor.execCmd(button.cmd, button.param||null);
 	}
 
-	function isCmdDisabled(cmd){
+	function isCmdDisabled(cmd, ignore_focus){
 		// Helperfunction: check show/hide options.
 		// showoptions count more: If command is in showoptions than show the button.
 		// If not in showoptions but (and) in hideoptions: hide the button. Otherwise show it.
 		// The special showoption "all" defines to enabled all commands. 
-		if(!editor.isEditorSelected())
+		if(!ignore_focus && !editor.isEditorSelected())
 			return true;
 		if(showoptions.indexOf("all") != -1)
 			return false;
@@ -609,20 +609,6 @@ BI.rtftoolbar=function(){
 			}
 			,editNode: function(ev, i, tag){
 				showContentMenu(ev, i, tag);
-				return;
-			
-			
-				BI.dialog.show("rtf:edit-rtf-node", null, {nodeindex:i,tag:tag})
-				if(ev){
-					//console.log(ev);
-					ev.preventDefault();
-					ev.stopPropagation();
-				}
-				else{	// IE
-					ev = window.event;
-					ev.cancelBubble = true;
-					ev.returnValue = false;
-				}
 			}
 		},
 
@@ -772,27 +758,6 @@ BI.rtftoolbar=function(){
 			});
 
 			toolbarElements = [
-			    /*               
-				{
-					cmd: "save",
-					cls: "x-btn-icon",
-					icon: "../../plugin-wga-app-framework/file/icons/accept.png",
-					tooltip: $L.RTFToolbar.save_and_close,
-					handler: function(){
-						BI.contenteditor.saveField();
-					}
-				},
-				{
-					cmd: "save",
-					cls: "x-btn-icon",
-					icon: "../../plugin-wga-app-framework/file/icons/disk.png",
-					tooltip: $L.RTFToolbar.save_and_continue,
-					handler: function(){
-						BI.contenteditor.saveFieldAndContinue();
-					}
-				},
-				'-',
-				*/
 				{
 					cmd: "zoom",
 					cls: "x-btn-icon",
@@ -844,7 +809,9 @@ BI.rtftoolbar=function(){
 					icon: "../../plugin-wga-app-framework/file/icons/html_valid.png",
 					tooltip: $L.RTFToolbar.removeFormatting,
 					handler: function(button, ev){
-						editor.selection.clean();
+						if(editor.getSelectedText())
+							editor.selection.clean();
+						else editor.cleanHTML()						
 					}
 				},				
 				'-',
@@ -1023,6 +990,7 @@ BI.rtftoolbar=function(){
 					'-'
 				)
 			}
+			/*
 			else {
 				toolbarElements.unshift(
 					{
@@ -1042,6 +1010,7 @@ BI.rtftoolbar=function(){
 					'-'
 				)
 			}
+			*/
 
 			toolbar = new Ext.Toolbar(dialog.body, toolbarElements);			
 		}

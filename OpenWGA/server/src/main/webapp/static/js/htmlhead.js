@@ -94,6 +94,25 @@ WGA = function() {
 
 }();
 
+WGA.contextpath = WGA.contextpath || ""; 
+WGA.getUriHash = function(){
+	/*
+	 * not sure why we need this. Just in case we do ;-)
+	 * for hashCode() see https://gist.github.com/hyamamoto/fd435505d29ebfa3d9716fd2be8d42f0 
+	 */
+	function hashCode(s) {
+		var h = 0, l = s.length, i = 0;
+		if ( l > 0 )
+			while (i < l)
+				h = (h << 5) - h + s.charCodeAt(i++) | 0;
+		return h;
+	};
+	if(!WGA.urihash)
+		WGA.urihash = hashCode(location.href)
+	return WGA.urihash;
+}
+WGA.urihash = WGA.getUriHash();		// init with current location.href
+
 WGA.responsive = {
 	breakpoints:{
 		medium: 0,
@@ -118,15 +137,7 @@ WGA.responsive = {
 	}
 }
 
-WGA.util = /**
- * @author oliver
- *
- */
-/**
- * @author oliver
- *
- */
-{
+WGA.util = {
 	showException : function(msg, e) {
 		msg += "\n";
 		if (e.fileName)
@@ -143,34 +154,20 @@ WGA.util = /**
 		if(!div){
 			div = document.createElement("div");
 			div.id = "wga-reload-message";
-			div.style.padding="10px";
+			div.style.padding="20px";
 			div.style.position="fixed";
 			div.style.left=div.style.right=div.style.top=0;
-			div.style.backgroundColor="gray";
+			div.style.backgroundColor="brown";
 			div.style.color="white";
 			div.style.boxShadow="0 0 10px black";
 			div.style.zIndex=10000;
 
-			var imgClose = document.createElement("img")
-			imgClose.src = WGA.contextpath + "/static/images/close.png";
-			imgClose.style.width = "16px";
 			var closeButton = document.createElement("button")
-			//closeButton.appendChild(imgClose);
 			closeButton.appendChild(document.createTextNode("x"));
 			closeButton.style.float="right";
-			closeButton.style.margin="0";
-			closeButton.style.color="darkgray";
-			closeButton.style.fontWeight="normal";
+			closeButton.style.color="#efefef";
 			closeButton.style.border="none";
-			closeButton.style.fontFamily = "sans-serif";
-			closeButton.style.fontSize = "10pt";
 			closeButton.style.background="transparent";
-			closeButton.onmouseenter = function(ev) {
-				ev.target.style.color = "white";
-			}
-			closeButton.onmouseleave = function(ev) {
-				ev.target.style.color = "darkgray";
-			}
 			closeButton.onclick=function(){
 				document.getElementById(id).style.display="none"
 			}
@@ -181,11 +178,25 @@ WGA.util = /**
 			
 			var reloadButton = document.createElement("button")
 			reloadButton.style.margin = "10px 0 0 0";
-			reloadButton.appendChild(document.createTextNode("OK"));
+			reloadButton.appendChild(document.createTextNode(WGA.util.label({
+				de: "Seite neu laden",
+				en: "Reload Page"
+			}, "en")));
 			reloadButton.onclick=function(){
 				top.location.reload();
 			}
 			div.appendChild(reloadButton);
+
+			var cancelButton = document.createElement("button")
+			cancelButton.style.margin = "10px 0 0 10px";
+			cancelButton.appendChild(document.createTextNode(WGA.util.label({
+				de: "Schließen",
+				en: "Close"
+			}, "en")));
+			cancelButton.onclick=function(){
+				document.getElementById(id).style.display="none"
+			}
+			div.appendChild(cancelButton);
 			
 			var firstElement = document.body.firstElementChild
 			if(firstElement)
@@ -486,7 +497,7 @@ WGA.util.label = function(labels, defaultLanguage) {
 		// Only language codes
 		for (var idx=0; idx < navigator.languages.length ; idx++) {
 			var locale = navigator.languages[idx];
-			var subIdx = locale.indexOf("_");
+			var subIdx = locale.indexOf("-");
 			if (subIdx != -1) {
 				var language = locale.substring(0, subIdx);
 				var label = labels[language];
@@ -501,7 +512,7 @@ WGA.util.label = function(labels, defaultLanguage) {
 		if (label) {
 			return label;
 		}
-		var subIdx = navigator.language.indexOf("_");
+		var subIdx = navigator.language.indexOf("-");
 		if (subIdx != -1) {
 			var language = navigator.language.substring(0, subIdx);
 			var label = labels[language];
@@ -519,32 +530,6 @@ WGA.util.label = function(labels, defaultLanguage) {
 	return null;
 	
 }
-
-/**
- * Generates content urls, for usage by other js functions
- * 
- * @param {String}
- *            key
- */
-WGA.buildContentURL = function(key) {
-
-	if (requestType == 'statictml' || requestType == 'null') {
-		return "";
-	}
-	if (mediaKeyMode == 1) {
-		if (key != null) {
-			return WGPPath + "/" + myLayout + "/" + key + "." + myMedium;
-		} else {
-			return WGPPath + "/" + myLayout + "." + myMedium;
-		}
-	} else {
-		if (key != null) {
-			return WGPPath + "/" + myMedium + "/" + myLayout + "/" + key;
-		} else {
-			return WGPPath + "/" + myMedium + "/" + myLayout;
-		}
-	}
-};
 
 /**
  * Module to register onload functions in WGA. onload-s are attached to the
@@ -1713,6 +1698,8 @@ WGA.portlet = function() {
 		// forceReload: Force reload of the portlet with the best state
 		,registerState : function(pKey, state, processContextId, testBetterState, forceReload, defaultState) {
 			
+			//console.log("registerState", pKey, processContextId, testBetterState, forceReload, defaultState);
+			
 			var localIsBetter = false;
 			
 			// Test if we have a local state.
@@ -1721,6 +1708,7 @@ WGA.portlet = function() {
 				if (myState && myState.data != state) {
 					localIsBetter = true;
 					forceReload = true;
+					//console.log("browser has better state", pKey, processContextId);
 				}
 			}
 			
@@ -1730,15 +1718,15 @@ WGA.portlet = function() {
 						defaultState: (defaultState && defaultState == true)
 				});
 				
-				if (window.sessionStorage) {
-					window.sessionStorage.setItem(PORTLETSTATE_PREFIX +  WGA.uriHash + "." + pKey, stateObject);
+				if (WGA.hasLocalStorage()) {
+					window.sessionStorage.setItem(PORTLETSTATE_PREFIX +  WGA.getUriHash() + "." + pKey, stateObject);
 					var parentKeys = parentRegistry[pKey];
 					if (parentKeys) {
 						
 						var parentKey = parentKeys[0];
 						if (parentKey) {
 							var children = [];
-							var childrenStr = window.sessionStorage.getItem(CHILDPORTLETS_PREFIX +  WGA.uriHash + "." + parentKey);
+							var childrenStr = window.sessionStorage.getItem(CHILDPORTLETS_PREFIX +  WGA.getUriHash() + "." + parentKey);
 							if (childrenStr) {
 								children = childrenStr.split(",");
 							}
@@ -1755,7 +1743,7 @@ WGA.portlet = function() {
 							if (!foundChild) {
 								children.push(pKey);
 							}
-							window.sessionStorage.setItem(CHILDPORTLETS_PREFIX +  WGA.uriHash + "." + parentKey, children.join(","));
+							window.sessionStorage.setItem(CHILDPORTLETS_PREFIX +  WGA.getUriHash() + "." + parentKey, children.join(","));
 						}
 					}
 				}
@@ -1770,18 +1758,19 @@ WGA.portlet = function() {
 		}
 		
 		,fetchState : function(pKey) {
-			if (window.sessionStorage) {
-				return JSON.parse(window.sessionStorage.getItem(PORTLETSTATE_PREFIX + WGA.uriHash + "." + pKey));
+			if (WGA.hasLocalStorage()){
+				return JSON.parse(window.sessionStorage.getItem(PORTLETSTATE_PREFIX + WGA.getUriHash() + "." + pKey));
 			}
-			else {
+			else if (portletStates[pKey]){
 				return JSON.parse(portletStates[pKey]);
 			}
+			else return null;
 		}
 		
 		// Remove state of a portlet that has been explicitly unregistered
 		,disposeState : function(pKey) {
-			if (window.sessionStorage) {
-				window.sessionStorage.removeItem(PORTLETSTATE_PREFIX + WGA.uriHash + "." + pKey);
+			if (WGA.hasLocalStorage()){
+				window.sessionStorage.removeItem(PORTLETSTATE_PREFIX + WGA.getUriHash() + "." + pKey);
 			}
 			else {
 				delete portletStates[pKey];
@@ -1814,8 +1803,8 @@ WGA.portlet = function() {
 				states.push(pKey + "//" + state.data);
 			}
 			
-			if (window.sessionStorage) {
-				var childrenStr = window.sessionStorage.getItem(CHILDPORTLETS_PREFIX + WGA.uriHash + "." + pKey);
+			if (WGA.hasLocalStorage()){
+				var childrenStr = window.sessionStorage.getItem(CHILDPORTLETS_PREFIX + WGA.getUriHash() + "." + pKey);
 				var children = [];
 				if (childrenStr) {
 					children = childrenStr.split(",");
@@ -1836,12 +1825,19 @@ WGA.portlet = function() {
 	
 		// Registers a portlet to be reloaded at the end of the request
 		,registerPortletForReload : function(pKey, processContextId) {
-			if (reloadPortlets.length == 0 && !WGA.isPageLoaded) { // On Non-AJAX requests call performPortletReloads() on window load event. AJAX requests run this manually.
-				WGA.onload.register(function() {
-					WGA.portlet.performPortletReloads();
-				});
+			if (!WGA.pageLoaded) { // On Non-AJAX requests call performPortletReloads() on window load event. AJAX requests run this manually.
+				if (reloadPortlets.length == 0){
+					WGA.onload.register(function() {
+						WGA.portlet.performPortletReloads();
+					});
+				}
+				reloadPortlets.push({key: pKey, processId: processContextId, children: []});
 			}
-			reloadPortlets.push({key: pKey, processId: processContextId, children: []});
+			else {
+				reloadPortlets.push({key: pKey, processId: processContextId, children: []});
+				WGA.portlet.performPortletReloads()
+			}			
+			//console.log("registerPortletForReload", pKey)
 		}
 		
 		// Performs registered portlet reloads
@@ -1878,6 +1874,7 @@ WGA.portlet = function() {
 			reloadPortlets = [];
 			
 			// Perform reloads
+			//console.log("performReloads", reallyReload.length)
 			for (var reallyReloadIdx=0; reallyReloadIdx < reallyReload.length; reallyReloadIdx++) {
 				var reload = reallyReload[reallyReloadIdx];
 				var formId = parentFormRegistry[reload.key];
@@ -1978,6 +1975,25 @@ WGA.onload.register(WGA.portlet.onload.executeAll);
 
 /* end portlet registry */
 
+/*
+ * #00004824:
+ * Test, if browser support sessionStorage
+ * Note that is't not enough to check window.sessionStorage
+ * Safari doesn't have local storage in private surfing mode. window.sessionStorage returns an Object
+ * but calling setItem() throws an exception "(DOM Exception 22): The quota has been exceeded".  
+ */
+WGA.hasLocalStorage = function(){
+	var testKey = 'test', storage = window.sessionStorage;
+    try {
+        storage.setItem(testKey, '1');
+        storage.removeItem(testKey);
+        return true;
+    } catch (error) {
+    	//console.log("no local storage");
+        return false;
+    }				
+}
+
 WGA.websocket = {
 		
 		WINDOWID: "de.innovationgate.wga.windowId",
@@ -1994,10 +2010,10 @@ WGA.websocket = {
 		},
 		
 		backendLostMessages: {
-			"de": "Die Verbindung zum Server wurde verloren. Eventuell ist ihre Internet-Verbindung abgebrochen oder der Serverdienst hat ein Problem.<br>" +
+			"de": "Die Websocket Verbindung zum Server wurde verloren. Eventuell ist ihre Internet-Verbindung abgebrochen oder der Serverdienst hat ein Problem.<br>" +
 				"Befinden sich ungesicherte Eingaben von ihnen auf dieser Webseite so werden sie diese vermutlich nicht speichern können. Sichern sie diese also an einem anderen Ort um sie nicht zu verlieren.<br>" +
 				"Klicken sie danach auf \"OK\" um zu versuchen, eine neue Verbindung aufzubauen oder laden sie die Seite manuell neu über die Reload-Schaltfläche ihres Browsers.",
-			"en": "The connection to the server is gone. Maybe your internet connection is lost or the server service has problems.<br>" +
+			"en": "The Websocket connection to the server is gone. Maybe your internet connection is lost or the server service has problems.<br>" +
 				"If the current webpage contains unsaved input from you then it is very likely that it cannot be submitted. You should instead store it at another place to avoid losing it.<br>" + 
 				"Then click \"OK\" to try to build a new connection or perform the reload manually using the reload button of your browser."			
 		},
@@ -2020,31 +2036,36 @@ WGA.websocket = {
 		
 		startService: function() {
 			
-			if (!window.sessionStorage) {
+			if (!WGA.hasLocalStorage()){
 				return false;
 			}
 			
 			var windowId = window.sessionStorage.getItem(this.WINDOWID);
-			var urlParams = {};
 			if (!windowId) {
 				windowId = this.pageId;
 				window.sessionStorage.setItem(this.WINDOWID, windowId);
 			}
-			urlParams.pageId = this.pageId;
-			urlParams.windowId = this.windowId;
-			urlParams.sessionId = this.sessionId;
+			this.windowId=windowId;
+			
+			var urlParams = {
+				windowId: this.windowId,
+				pageId: this.pageId,
+				sessionId: this.sessionId
+			}
 			
 			var completeUrl = this.url + (this.url.indexOf("?") != -1 ? "&" : "?") + WGA.toQueryString(urlParams);
-			
+
+			if(this.socket)
+				this.socket.close();
 
 			if ('WebSocket' in window) {
-				if (console && console.log) {
+				if (WGA.debug && console && console.log) {
 					console.log("Building socket connection, pageId: " + this.pageId);
 				}
 				this.socket = new WebSocket(completeUrl);
 			}
 			else if ('MozWebSocket' in window) {
-				if (console && console.log) {
+				if (WGA.debug && console && console.log) {
 					console.log("Building mozilla compatible socket connection, pageId: " + this.pageId);
 				}
 				this.socket = new MozWebSocket(completeUrl);
@@ -2058,6 +2079,7 @@ WGA.websocket = {
 			if (!this.noCloseHandler) {
 				this.socket.onclose = this.onClose;
 			}
+			
 			return true;
 			
 		},
@@ -2065,23 +2087,23 @@ WGA.websocket = {
 		onMessage: function(event) {
 			var msg = JSON.parse(event.data);
 			if (msg.type == 'firePortletEvent') {
-				if (console && console.log) {
+				if (WGA.debug && console && console.log) {
 					console.log("Execute portlet event from websocket, pageId: " + WGA.websocket.pageId, event.data);
 				}	
 				WGA.event.fireEvent(msg.event.name, "*", msg.event.params);
 			}
 			else if (msg.type == 'handshake') {
 				WGA.websocket.reconnectAttempts = 1;
-				if (console && console.log) {
+				if (WGA.debug && console && console.log) {
 					console.log("Connected WebSocket, pageId: " + WGA.websocket.pageId);
 				}
 			}
 			else if (msg.type == 'response') {
-				if (console && console.log) {
+				if (WGA.debug && console && console.log) {
 					console.log("Receiving response from websocket, pageId: " + WGA.websocket.pageId, event.data);
 				}
 				
-				if (msg.status != "SUCCESS" && console && console.log) {
+				if (msg.status != "SUCCESS" && WGA.debug && console && console.log) {
 					console.log("WebSocket response returned with non-success status", JSON.stringify(msg));
 				}
 				if (!msg.callId) {
@@ -2091,15 +2113,15 @@ WGA.websocket = {
 				var callback;
 				if (msg.status == "SUCCESS") {
 					callback = WGA.websocket.callbacks[msg.callId];
-					delete WGA.websocket.callbacks[msg.callId];
 				}
 				else {
 					callback = WGA.websocket.errorCallbacks[msg.callId];
-					delete WGA.websocket.errorCallbacks[msg.callId];			
 				}
+				delete WGA.websocket.callbacks[msg.callId];
+				delete WGA.websocket.errorCallbacks[msg.callId];
 				
 				if (callback && typeof(callback) == "function") {
-					if (console && console.log) {
+					if (WGA.debug && console && console.log) {
 						console.log("Executing callback for response: " + callback);
 					}
 					callback(msg);
@@ -2107,7 +2129,7 @@ WGA.websocket = {
 			}
 			else if (msg.type == 'custom') {
 				for (var idx=0; idx < WGA.websocket.messageListeners.length; idx++) {
-					if (console && console.log) {
+					if (WGA.debug && console && console.log) {
 						console.log("Execute custom message from websocket, pageId: " + WGA.websocket.pageId, event.data);
 					}
 					WGA.websocket.messageListeners[idx](msg.data);
@@ -2117,71 +2139,117 @@ WGA.websocket = {
 
 		onClose: function(event) {
 			
-			if (console && console.log) {
-				console.log("Socket connection closed, pageId: " + WGA.websocket.pageId);
+			if (WGA.debug && console && console.log) {
+				console.log("Socket connection closed, pageId: " + WGA.websocket.pageId, event, "event.code", event.code);
 			}
+			
 			
 			WGA.websocket.socket.onmessage = null;
 			WGA.websocket.socket.onopen = null;
 			WGA.websocket.socket.onclose = null;
 			
+			this.socket=null;
+			
 			// Reason codes that should prevent reconnect.
 			if (event.code <= 1001) { // Normal closing
 				return;
 			}
+			else if (event.code == -9825) {
+				// MacOS: errSSLPeerBadCert - A bad certificate was encountered.
+				// ignore this
+				return;
+			}
 			else if (event.code == 1008) {
-				if (console && console.log) {
-					console.log("Lost connection to WebSocket bc. of violated policy. Will need to reload page to restart WebSocket: " + event.reason);
-					WGA.util.showReloadMessage(WGA.util.label(WGA.websocket.reloadMessages, "en"));
+				if (WGA.debug && console && console.log) {
+					console.log("Lost connection to WebSocket bc. of violated policy. Will need to reload page to restart WebSocket", event.reason);
+					//WGA.util.showReloadMessage(WGA.util.label(WGA.websocket.reloadMessages, "en"));
 				}
 				return;
 			}
 			
 			if (WGA.websocket.reconnectAttempts >= 5) {
-				WGA.util.showReloadMessage(WGA.util.label(WGA.websocket.backendLostMessages, "en"));
-				if (console && console.log) {
+				if (WGA.debug && console && console.log) {
 					console.log("Lost connection to WebSocket. Reason code: " + event.code + ", reason: '" + event.reason + "'. Cancelling service after 5 reconnect attempts.");
 				}
+				//WGA.util.showReloadMessage(WGA.util.label(WGA.websocket.backendLostMessages, "en"));
 				return;
 			}
 			
 			var time = WGA.util.generateInterval(WGA.websocket.reconnectAttempts, 5000);
-			if (console && console.log) {
-				console.log("Lost connection to WebSocket. Reason code: " + event.code + ", reason: '" + event.reason + "'. Will try to reconnect in " + time + " milliseconds.");
+			if (WGA.debug && console && console.log) {
+				console.log("Lost connection to WebSocket. Reason code: " + event.code + ", reason: '" + event.reason + "'. Will try to reconnect in " + parseInt(time) + " milliseconds.");
 			}
 			setTimeout(function() {
 				WGA.websocket.reconnectAttempts = WGA.websocket.reconnectAttempts + 1;
-				if (console && console.log) {
+				if (WGA.debug && console && console.log) {
 					console.log("Trying reconnect to WebSocket. Attempt: " + WGA.websocket.reconnectAttempts);
 				}
 				WGA.websocket.startService();
 			}, time);
 		},
 		
+		/**
+		 * Calls a method on a (managed) TMLScript global on the server via Websockets
+		 * Usage:
+		 * 	WGA.websocket.callGlobal(name, method, params).then(success_function, error_function)
+		 * 
+		 * Sample:
+		 * 	WGA.websocket.callGlobal("Chat", "post", {message: "Hello World"}).then(function(response){
+		 * 		console.log("response", response);
+		 * })
+		 * see #00005058
+		 */
 		
-		callGlobal: function(global, method, params, callback, errorCallback) {
+		callGlobal: function(global, method, params) {			
 			
+			if(!global || !method)
+				return;
+			
+			var state = "pending";
 			var uid = WGA.portlet.generateUUID();
-			if (callback) {
-				WGA.websocket.callbacks[uid] = callback;
+			var onSuccess, onError,
+				return_msg;
+			
+			WGA.websocket.callbacks[uid] = function(msg){
+				state = "success";
+				return_msg = msg;
+				if(onSuccess)
+					onSuccess(msg);
 			}
-			if (errorCallback) {
-				WGA.websocket.errorCallbacks[uid] = errorCallback;
+			WGA.websocket.errorCallbacks[uid] = function(msg){
+				state = "error";
+				return_msg = msg;
+				if(onError)
+					onError(msg);				
 			}
+			
 			var msg = {
 					type: "callGlobal",
 					callId: uid,
 					global: global,
 					method: method,
-					params: params
+					params: params || {}
 			};
 			WGA.websocket.socket.send(JSON.stringify(msg));
+			
+			return {
+				
+				then: function(success, error){
+					onSuccess = success;
+					onError = error;
+					if(state=="success")
+						onSuccess(return_msg);
+					else if(state=="error")
+						onError(return_msg);
+				}
+				
+			}
+			
 		
 		},
 		
 		// Overwrite this to run some functionality if there is no WebSocket support
-		noSupport: function() {
-		}
+		noSupport: function() {}
 		
 };
 

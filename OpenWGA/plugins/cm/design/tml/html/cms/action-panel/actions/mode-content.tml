@@ -116,16 +116,18 @@
 			_wf = content().getWorkflow();
 		</tml:script>
 		<div class="section">
-			<tml:if condition="content().isPendingRelease() && (_Database.isEditor()||_Content.isAuthorOrOwner()||_wf.workflowRole==_wf.ROLE_APPROVER)">
+			<tml:if condition="content().isPendingRelease()">
 				<tml:then>
-					<h1>{%label:actions.section.edit%}:</h1>
-					<div class="list edit-content"
-								onmouseover="Ext.get(this).addClass('selected')"
-								onmouseout="Ext.get(this).removeClass('selected')"
-								onclick="BI.dialog.show('reject-pending-content', this)"
-					>
-						<tml:label key="actions.edit-pending"/>
-					</div>
+					<tml:case condition="_Content.mayEditContent()">
+						<h1>{%label:actions.section.edit%}:</h1>
+						<div class="list edit-content"
+									onmouseover="Ext.get(this).addClass('selected')"
+									onmouseout="Ext.get(this).removeClass('selected')"
+									onclick="BI.dialog.show('reject-pending-content', this)"
+						>
+							<tml:label key="actions.edit-pending"/>
+						</div>
+					</tml:case>
 				</tml:then>
 				<tml:elseif condition="_Content.mayApprove()">
 					<h1>{%label:actions.section.workflow%}:</h1>
@@ -195,7 +197,7 @@
 				</tml:foreach>
 			</tml:case>
 	
-			<tml:case condition="_Content.mayCreateContent()">
+			<tml:case condition="_Struct.mayCreateContent()">
 				<div class="list create-content-version"
 						onmouseover="Ext.get(this).addClass('selected')"
 						onmouseout="Ext.get(this).removeClass('selected')"
@@ -207,13 +209,13 @@
 		</div>
 	</div>
 	
-	<tml:case condition="_Content.mayArchiveContent() || _Content.mayDeletePage() || _Content.mayDeleteContent()">
+	<tml:case condition="_Content.mayArchiveContent() || _Struct.mayDeletePage() || _Content.mayDeleteContent()">
 		<div class="section">
 			<a class="drop-down" href="javascript:void(0)" style="cursor:pointer" onclick="BI.util.toggleElement(Ext.get(this).getNextSibling());Ext.get(this).toggleClass('drop-down-open')">
 				<h1>{%label:actions.section.delete%}</h1>
 			</a>
 			<div style="display:none;padding-left:8px;">
-				<tml:case condition="_Content.mayDeletePage()">
+				<tml:case condition="_Struct.mayDeletePage()">
 					<div class="list delete-page" 
 								onmouseover="Ext.get(this).addClass('selected')"
 								onmouseout="Ext.get(this).removeClass('selected')"
@@ -269,16 +271,6 @@
 			</tml:if>
 		</script>
 	
-		<tml:case condition="_Content.hasOtherVersions()">
-			<div class="list compare-contents" 
-						onmouseover="Ext.get(this).addClass('selected')"
-						onmouseout="Ext.get(this).removeClass('selected')"
-						onclick="BI.contentComparePanel.show()"
-			>				
-				{%label:actions.content-compare%}
-			</div>
-		</tml:case>
-	
 		<tml:case condition="_Database.hasMailHost()">
 			<div class="list forward-content" 
 						onmouseover="Ext.get(this).addClass('selected')"
@@ -301,7 +293,7 @@
 		
 		<tml:script>
 			_mode="view";
-			if(!_Content.isContentConsumer() && _Content.isMine() && STATUS==content().STATUS_DRAFT)
+			if(!_Content.isContentConsumer() && _Content.isMine() && STATUS==content().STATUS_DRAFT && _Content.mayEditContent())
 				_mode="edit"
 		</tml:script> 
 		<div class="list edit-content-modules" id="edit-content-modules-action" style="display:none"

@@ -65,10 +65,14 @@
 				// enable desktop file drag&drop
 
 				function isDesktopDrop(dt){
-					return WGA.isWebKit ? (dt.types.indexOf("Files")>=0) : (dt.types.contains("Files"))
+					return dt.types.indexOf ? (dt.types.indexOf("Files")>=0) 
+						: dt.types.contains ? (dt.types.contains("Files"))
+						: false;
 				}
 				function isFilesDrop(dt){
-					return WGA.isWebKit ? (dt.types.indexOf("wga/files")>=0) : (dt.types.contains("wga/files"))
+					return dt.types.indexOf ? (dt.types.indexOf("wga/files")>=0) 
+						: dt.types.contains ? (dt.types.contains("wga/files"))
+						: false;
 				}
 				
 				function forceCreateLink(){
@@ -76,10 +80,7 @@
 						return false;
 					else if(editor.getNearestTagFromSelection("a"))
 						return true;
-					else{
-						var selection = editor.getSelectedText()
-						return !selection.isCollapsed
-					}
+					else return editor.getSelectedText()!=""
 				}
 				
 				function setDropEffect(e){
@@ -165,7 +166,7 @@
 					else if(!editor.toolbar.isCmdDisabled("InsertImg")){
 						if(!file.poster)
 							return;
-			        	if(!editor.getParagraph())
+			        	if(!editor.getParagraph() && !editor.isInTable())
 			        		editor.execCmd("FormatBlock", "p");
 						var el = editor.createImg(file.poster, file.type||"intfile")
 						AFW.RTF.setURLInfo(el, {type:file.type||"intfile", key:file.key||file.name})
@@ -182,7 +183,7 @@
 					if(cmd=="image"){
 			        	// create image
 			        	
-			        	if(!editor.getParagraph())
+			        	if(!editor.getParagraph() && !editor.isInTable())
 			        		editor.execCmd("FormatBlock", "p");
 			        	
 						var el = editor.createImg("<tml:url type="file" doc="images" file="ajax-loader-2.gif"/>", "intfile")
@@ -312,7 +313,6 @@
 				}
 			}
 			params.ts=now.getTime();
-			console.log(params);
 			var new_params = []
 			for(var i in params)
 				new_params.push(i + "=" + params[i]);
@@ -381,7 +381,7 @@
 		<div id="rtf-table-form">
 			<table width="100%">
 				<tr id="rtf-table-format-tableStyles">
-					<td><tml:label key="rtf.table"/>:</td>
+					<td width="70"><tml:label key="rtf.table"/>:</td>
 					<td><div id="rtf-toolbar-table-tableStyles-button"></div></td>
 				</tr>
 				<tr id="rtf-table-format-trStyles">

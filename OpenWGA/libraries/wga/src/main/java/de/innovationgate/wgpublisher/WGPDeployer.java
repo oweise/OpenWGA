@@ -54,9 +54,12 @@ import de.innovationgate.utils.WGUtils;
 import de.innovationgate.webgate.api.WGAPIException;
 import de.innovationgate.webgate.api.WGDatabase;
 import de.innovationgate.webgate.api.WGDatabaseEventListener;
+import de.innovationgate.webgate.api.WGException;
 import de.innovationgate.webgate.api.WGTMLModule;
 import de.innovationgate.wga.common.beans.csconfig.v1.MediaKey;
 import de.innovationgate.wga.config.DesignReference;
+import de.innovationgate.wga.server.api.Design;
+import de.innovationgate.wga.server.api.WGA;
 import de.innovationgate.wgpublisher.design.WGADesignManager;
 
 public class WGPDeployer implements WGACoreEventListener {
@@ -127,9 +130,6 @@ public class WGPDeployer implements WGACoreEventListener {
             out.write(" sourceline=\"");
             out.write(String.valueOf(lineNumber));
             out.write("\"");
-            out.write(" uid=\"");
-            out.write(UIDGenerator.generateUID());
-            out.write("\"");
             
             for (String att : additionalAtts) {
                 out.write(att);
@@ -190,11 +190,8 @@ public class WGPDeployer implements WGACoreEventListener {
     class PPTagsPreProcessor implements ReplaceProcessor {
 
         private WGDatabase _db;
-
         private WGACore _core;
-
         private WGTMLModule _mod;
-
         private boolean _enabled = true;
 
         public PPTagsPreProcessor(WGACore core, WGTMLModule mod) {
@@ -204,8 +201,7 @@ public class WGPDeployer implements WGACoreEventListener {
         }
 
         /**
-         * @see de.innovationgate.utils.ReplaceProcessor#replace(String, int,
-         *      int, Writer)
+         * @see de.innovationgate.utils.ReplaceProcessor#replace(String, int, int, Writer)
          */
         public int replace(String text, int from, int to, Writer out) throws IOException {
 
@@ -241,6 +237,10 @@ public class WGPDeployer implements WGACoreEventListener {
             else if (name.equals("label")) {
                 out.write("<tml:label key=\"" + params.get(0) + "\"/>");
             }
+            else{
+                out.write(text.substring(from, to));
+                return to;            	
+            }
 
             return endPos + 2;
 
@@ -248,6 +248,118 @@ public class WGPDeployer implements WGACoreEventListener {
 
     }
 
+    class PPPreProcessor implements ReplaceProcessor {
+
+        private WGDatabase _db;
+        private WGACore _core;
+        private WGTMLModule _mod;
+
+        public PPPreProcessor(WGACore core, WGTMLModule mod) {
+            _core = core;
+            _db = mod.getDatabase();
+            _mod = mod;
+        }
+
+        /**
+         * @see de.innovationgate.utils.ReplaceProcessor#replace(String, int, int, Writer)
+         */
+        public int replace(String text, int from, int to, Writer out) throws IOException {
+
+            // First get all data
+            int endPos = text.indexOf("}", to);
+            if (endPos == -1) {
+                out.write(text);
+                return text.length();
+            }
+
+            String call = text.substring(from + 2, endPos).trim();
+            int nameDelimiterPos = call.indexOf(" ");
+            String name = null;
+            List<String> params = new ArrayList<String>();
+            if (nameDelimiterPos != -1) {
+                name = call.substring(0, nameDelimiterPos).trim();
+                params.addAll(WGUtils.deserializeCollection(call.substring(nameDelimiterPos + 1), " "));
+            }
+            else {
+                name = call;
+            }
+
+            // Preprocessor commands
+            if(name.startsWith(":")){
+            	name=name.substring(1);
+	            if (name.equals("label")) {
+	                out.write("<tml:label key=\"" + params.get(0) + "\"/>");
+	            }
+	            else if (name.equals("each")) {
+	                out.write("<tml:foreach item=\"" + params.get(0) + "\"");
+	                params.remove(0);
+	            	for(String p: params){
+	            		out.write(" " + p);
+	            	}
+	            	out.write(">");
+	            }
+	            else if (name.equals("url")) {
+	                out.write("<tml:url");
+	            	for(String p: params){
+	            		out.write(" " + p);
+	            	}
+	            	out.write("/>");
+	            }
+	            else if (name.equals("include")) {
+	                out.write("<tml:include ref=\"" + params.get(0) + "\">");
+	            }
+	            else if (name.equals("context")) {
+	                out.write("<tml:range context=\"" + params.get(0) + "\">");
+	            }
+	            else if (name.equals("encode")) {
+	                out.write("<tml:range encode=\"" + params.get(0) + "\">");
+	            }
+	        }
+            else if (name.equals("/each")) {
+                out.write("</tml:foreach>");
+            }
+            else if (name.equals("/include")) {
+                out.write("</tml:include>");
+            }
+            else if (name.equals("/encode") || name.equals("/context")) {
+                out.write("</tml:range>");
+            }
+            else if (name.equals("import")) {
+                String refStr = (String)params.get(0);
+                try {
+                	Design design = WGA.get(_core).design(_db).resolve(refStr);
+                	WGTMLModule mod = design.getTMLModule("html");
+                	if(mod!=null && mod.isPreprocess()){
+                        PPPreProcessor preProcessor = new PPPreProcessor(_core, mod);
+                        String code = WGUtils.strReplace(mod.getCode(), "@{", preProcessor, true);
+                		out.write(code);
+                	}
+                	else LOG.error("unable to <@import " + refStr);
+				} catch (WGException e) {
+					LOG.error("unable to <@import " + refStr);
+				}
+                
+            }
+            else{
+            	// interpret as item or meta
+            	if(name.equals(name.toUpperCase()))
+            		out.write("<tml:meta name=\"" + name + "\"");
+            	else out.write("<tml:item name=\"" + name + "\"");
+            	for(String p: params){
+            		out.write(" " + p);
+            	}
+            	out.write("/>");
+            }
+
+            //LOG.info("preprocessed: " + name + ", params: " + params.toString());
+            
+            return endPos + 1;
+
+        }
+
+    }
+
+    
     public static final String FOLDER_DYNAMIC_RESOURCES = "dynamic";
 
     private WGACore _core;
@@ -280,8 +392,8 @@ public class WGPDeployer implements WGACoreEventListener {
     }
 
     private synchronized DeployedLayout deployTML(WGTMLModule tmlLib) throws DeployerException {
-
-        if (tmlLib == null) {
+    	
+    	if (tmlLib == null) {
             throw new DeployerException("Tried to deploy tml module \"null\". Maybe a tml module is not accessible");
         }
         
@@ -298,6 +410,7 @@ public class WGPDeployer implements WGACoreEventListener {
         String resourceName = null;
         
         try {
+            
             if (tmlLib.isVariant()) {
                 layoutKey = layoutKey + "//" + databaseKey;
             }
@@ -360,7 +473,7 @@ public class WGPDeployer implements WGACoreEventListener {
             String completeCode = buildTMLCode(tmlLib, "Inline " + inlineName + " of " + tmlLib.getName() + " (" + tmlLib.getMediaKey() + ")", layoutKey, code);
 
             resourceName = tmlLib.getName().toLowerCase();
-            LOG.info("Deploying inline " + inlineName + " of tml " + mediaKey + "/" + resourceName + " (" + ref.getDesignProviderReference().toString() + ")");
+            LOG.debug("Deploying inline " + inlineName + " of tml " + mediaKey + "/" + resourceName + " (" + ref.getDesignProviderReference().toString() + ")");
             return mapAndDeployLayout(tmlLib, layoutKey, completeCode);
         }
         catch (Exception e) {
@@ -515,6 +628,18 @@ public class WGPDeployer implements WGACoreEventListener {
             LOG.error("Error preprocessing WebTML module " + mod.getDocumentKey(), e);
         }
 
+        // Process <@ preprocessor if enabled
+        if(mod.isPreprocess()){
+	        try {
+	        	//code = code.replaceAll("@@([\\w|\\$]+)", "<tml:item name=\"$1\"/>");
+	            PPPreProcessor pppreProcessor = new PPPreProcessor(_core, mod);
+	            code = WGUtils.strReplace(code, "@{", pppreProcessor, true);
+	        }
+	        catch (RuntimeException e) {
+	            LOG.error("Error preprocessing WebTML module " + mod.getDocumentKey(), e);
+	        }
+        }
+        
         // Second pass. Process WebTML tags
         LineNumberReader reader = new LineNumberReader(new StringReader(code));
         StringBuffer out = new StringBuffer();
@@ -567,7 +692,7 @@ public class WGPDeployer implements WGACoreEventListener {
 
         Date lastDeployed = getLastDeployed(designDBKey);
         Date lastChanged = db.getLastChanged();
-        if (lastDeployed == null || lastChanged.after(lastDeployed)) {
+        if (lastDeployed == null || (lastChanged!=null && lastChanged.after(lastDeployed))) {
             return lastChanged;
         }
         else {

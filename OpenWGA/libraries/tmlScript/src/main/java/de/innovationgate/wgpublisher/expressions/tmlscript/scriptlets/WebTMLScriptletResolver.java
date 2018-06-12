@@ -194,10 +194,12 @@ public class WebTMLScriptletResolver {
                 metaType = metaName.substring(0, colonPos);
                 metaName = metaName.substring(colonPos + 1);
             }
-            return String.valueOf(context.meta(metaType, metaName));
+            Object result = context.meta(metaType, metaName);
+            return result != null ? String.valueOf(result) : "";
         }
         else if (scriptletToken.startsWith("#")) {
-            return String.valueOf(context.item(scriptletToken.substring(1)));
+        	Object result = context.item(scriptletToken.substring(1));
+            return result != null ? String.valueOf(result) : "";
         }
         else if (scriptletToken.startsWith("!")) {
             return executeCommandMacro(context, scriptletToken.substring(1), params);
@@ -258,7 +260,7 @@ public class WebTMLScriptletResolver {
             return macroFileURL(context, command, param, engineParams);            
         }
         else if (command.equalsIgnoreCase("srcset")) {
-            return macroSrcset(context, param);
+            return macroSrcset(context, param, engineParams);
         }
         else if (command.equalsIgnoreCase("link")) {
             return macroLink(context, param);
@@ -296,6 +298,8 @@ public class WebTMLScriptletResolver {
         List<String> parms = WGUtils.deserializeCollection(param, ",", true);
         String dbKey = null;
         String contentKey = null;
+    	String defaultMediaKey;
+
         if (parms.size() == 2) {
             dbKey = (String) parms.get(0);
             contentKey = (String) parms.get(1);
@@ -310,14 +314,16 @@ public class WebTMLScriptletResolver {
         if (context.db().getBooleanAttribute(WGACore.DBATTRIB_USEREMOTECS, false) && context.content().hasItem("remote_info")) {
             TMLContext remoteTargetContext = traceRemoteDocument(context, contentKey);
             if (remoteTargetContext != null) {
-                return remoteTargetContext.contenturl(null, null);
+            	defaultMediaKey = (String) context.getwgacore().readPublisherOptionOrDefault(remoteTargetContext.db(), WGACore.DBATTRIB_DEFAULT_MEDIAKEY);
+            	return remoteTargetContext.contenturl(defaultMediaKey, null);
             }
         }
         else {
             String contextExpr = (dbKey != null ? "db:" + dbKey + "/" : "") + "docid:" + contentKey;
             TMLContext targetContext = context.context(contextExpr, false);
             if (targetContext != null) {
-                return targetContext.contenturl(null, null);
+            	defaultMediaKey = (String) context.getwgacore().readPublisherOptionOrDefault(targetContext.db(), WGACore.DBATTRIB_DEFAULT_MEDIAKEY);
+                return targetContext.contenturl(defaultMediaKey, null);
             }
         }
         
@@ -349,12 +355,15 @@ public class WebTMLScriptletResolver {
         if (generateDataURL == null) {
             generateDataURL = Boolean.FALSE;
         }
-    
+
+        Integer level = (Integer) engineParams.get(RhinoExpressionEngine.SCRIPTLETOPTION_LEVEL);
         
         List<String> parms = WGUtils.deserializeCollection(param, ",", true);
         String fileName = null;
         String containerName = null;
         String title = fileName;
+        String derivates = null;
+        
         if (parms.size() == 1) {
             fileName = (String) parms.get(0);
             title = fileName;
@@ -370,9 +379,17 @@ public class WebTMLScriptletResolver {
             title = (String) parms.get(2);
         }
         else {
-            return "(invalid parameter count for !filelink: " + parms.size() + ")";
+            return "(invalid parameter count for !" + command + ": " + parms.size() + ")";
         }
-        
+
+        String[] parts = fileName.split("\\?");
+        if(parts.length>1){
+        	fileName = parts[0];        	
+        	derivates = parts[1];
+        	if (level.equals(RhinoExpressionEngine.LEVEL_SYSTEM_MACROS)) {
+        		derivates = null;
+        	}
+        }
         
         if (containerName != null) {                
             // if container name is present we should check if this is a content key
@@ -391,13 +408,16 @@ public class WebTMLScriptletResolver {
         
         String url = null;
         if (generateDataURL.booleanValue() && command.equalsIgnoreCase("imgurl")) {
-        	url = context.filedataurl(containerName, fileName);
+        	if (derivates == null)
+        		derivates = (String) context.option(Base.OPTION_IMAGE_DERIVATES);
+            return context.filedataurl(null, containerName, fileName, null, derivates);
         } else {
         	url = context.fileurl(containerName, fileName);
         }
         
         if (command.equalsIgnoreCase("imgurl")) {
-            String derivates = (String) context.option(Base.OPTION_IMAGE_DERIVATES);
+        	if (derivates == null)
+        		derivates = (String) context.option(Base.OPTION_IMAGE_DERIVATES);
             if (derivates != null) {
                 DerivateQuery derivateQuery = context.getwgacore().getFileDerivateManager().parseDerivateQuery(derivates);
                 url = addDerivateQueryToURL(context, derivateQuery, url);
@@ -485,8 +505,10 @@ public class WebTMLScriptletResolver {
         return out.toString();
     }
 
-    private String macroSrcset(TMLContext context, String param) throws WGException {
-    
+    private String macroSrcset(TMLContext context, String param, Map<String,Object> engineParams) throws WGException {
+    	
+    	Integer level = (Integer) engineParams.get(RhinoExpressionEngine.SCRIPTLETOPTION_LEVEL);
+    	
         WGA wga = WGA.get(context);
         boolean useNonfinalFeatures = (Boolean) wga.database(context.db()).getPublisherOption(WGACore.DBATTRIB_USE_NONFINAL_HT_FEATURES);
         if (!useNonfinalFeatures) {
@@ -496,6 +518,16 @@ public class WebTMLScriptletResolver {
         List<String> params = WGUtils.deserializeCollection(param, ",", true);
         String doc = params.size() >= 2 ? params.get(0) : null;
         String fileName = params.get(params.size() -1);
+        String derivates = null;
+        
+        String[] parts = fileName.split("\\?");
+        if(parts.length>1){
+        	fileName = parts[0];        	
+        	derivates = parts[1];
+        	if (level.equals(RhinoExpressionEngine.LEVEL_SYSTEM_MACROS)) {
+        		derivates = null;	// ignore derivates
+        	}
+        }
         
         TMLContext targetContext = context;
         if (doc != null) {
@@ -506,7 +538,8 @@ public class WebTMLScriptletResolver {
         }
         
         String imgURL = targetContext.fileurl(fileName);
-        String derivates = (String) context.option(Base.OPTION_IMAGE_DERIVATES);
+        if(derivates==null)
+        	derivates = (String) context.option(Base.OPTION_IMAGE_DERIVATES);
         DerivateQuery derivateQuery = null;
         if (derivates != null) {
             derivateQuery = context.getwgacore().getFileDerivateManager().parseDerivateQuery(derivates);
@@ -558,21 +591,20 @@ public class WebTMLScriptletResolver {
         }
         
         Design scriptletDesign = baseDesign.resolveSystemScriptModule(actionID, WGScriptModule.CODETYPE_TMLSCRIPT, true);
-        if (scriptletDesign != null) {
-            
-            GlobalExpressionScope globalScope = new GlobalExpressionScope() {
-                @SuppressWarnings("unchecked")
-                public Map<String, Object> getObjects() {
-                    return (Map<String,Object>) engineParams.get(RhinoExpressionEngine.SCRIPTLETOPTION_OBJECTS);
-                }
-            };
-            
-            return String.valueOf(wga.callAction(context, scriptletDesign.toString(), new ArrayList<Object>(params), null, globalScope));
+        if(scriptletDesign == null) {
+        	baseDesign = wga.design(context.getmaincontext().getDesignDBKey());
+        	scriptletDesign = baseDesign.resolveSystemScriptModule(actionID, WGScriptModule.CODETYPE_TMLSCRIPT, true);
         }
-        else {
-            return "";
-        }
-        
+        if(scriptletDesign == null)
+        	return "";
+            
+        GlobalExpressionScope globalScope = new GlobalExpressionScope() {
+            @SuppressWarnings("unchecked")
+            public Map<String, Object> getObjects() {
+                return (Map<String,Object>) engineParams.get(RhinoExpressionEngine.SCRIPTLETOPTION_OBJECTS);
+            }
+        };
+        return String.valueOf(wga.callAction(context, scriptletDesign.toString(), new ArrayList<Object>(params), null, globalScope));    
     }
 
     private TMLContext traceRemoteDocument(TMLContext context, String linkTargetContentKey) throws WGAPIException {

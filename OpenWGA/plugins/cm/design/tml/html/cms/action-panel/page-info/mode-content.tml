@@ -94,6 +94,11 @@
 											content().save();
 											var event=createEvent("CMS_title_changed");
 											portlet.fireEvent(event);
+											
+											WGA.app(WGA.design().db().getDbReference()).fireEvent("page-updated", {
+												structkey: STRUCTKEY
+											})
+											
 										</tml:action>
 									</tml:option>
 								</tml:include>
@@ -122,7 +127,8 @@
 							{%label:virtual-document%}<br>
 							<a href="<tml:url/>" target="<tml:script expression="LINKTARGET||'wga-contentmanager-iframe'"/>">
 								<tml:script>
-									_title = virtuallinktitle || VIRTUALLINK
+									var doc = context("vlinktarget", false);
+									_title = (doc && doc.TITLE) || virtuallinktitle || VIRTUALLINK
 								</tml:script>
 								<tml:script expression="_title.length>25 ? _title.substr(0, 22)+' ...' : _title"/> 
 							</a>

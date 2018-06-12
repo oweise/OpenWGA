@@ -282,11 +282,21 @@ BI.sitepanel.initItemEditors=function(){
 				Structure seems to be OK
 			*/
 			
-			item.dom.setAttribute("cm.item", "init")
-			item.setStyle("display", "block");
-	
 			var params=item_info_el.dom.innerHTML.replace(/\s/g, "").split("|");
 	
+			item.dom.setAttribute("cm.item", "init")
+	
+			switch(params[1]){
+				case "rtf":
+				case "image":
+				case "textblock":
+					item.setStyle("display", "block");
+					break;
+				default:
+					item.setStyle("display", "inline");
+					break;
+			}
+			
 			if(params[1]=="image")
 				BI.sitepanel.initImgDropHandler(params[0], item)
 	
@@ -300,32 +310,28 @@ BI.sitepanel.initItemEditors=function(){
 			
 			// show item-label if item is empty:
 			if(item_value_el.dom.innerHTML==""){
-				item_label_el.setStyle({
-					display: "inline",
-					MozBorderRadius: "5px",
-					WebkitBorderRadius: "5px",
-					borderRadius: "5px",				
-					border: "dashed silver 2px",
-					fontStyle: "italic",
-					padding: "0 35px",
-					margin: "5px 0",
-					textAlign: "center"
-				})
 				if(params[1]=="image"){
 					item_label_el.setStyle({
 						display: "block",
 						padding: "30px 5px"
 					})
 				}
-				else if(params[1]=="rtf")
+				else if(params[1]=="rtf"){
 					item_label_el.setStyle({
 						display: "block",
 						padding: "30px 5px"
 					})
-				else if(params[1]=="textblock")
+				}
+				else if(params[1]=="textblock"){
 					item_label_el.setStyle({
 						display: "block"
 					})
+				}
+				else{
+					item_label_el.setStyle({
+						display: "inline"
+					})
+				}
 			}
 			
 			function mover(ev){
@@ -565,6 +571,16 @@ WGA.event.register(
 		BI.selectContent(BI.contentkey, BI.structkey);
 	}
 );
+
+/*
+WGA.event.register(
+	"portlet-website-observer",
+	"page-updated", 
+	function(e){
+		BI.se.updateStruct(e.params.structkey)
+	}
+);
+*/
 
 WGA.event.addListener("portlet-website-observer", "CMS_attachments_changed", function(){		
 	var root = BI.sitepanel.iframe.window.document.body;

@@ -267,7 +267,9 @@ public class Image extends Base implements DynamicAttributes {
                         }
                         Dimension originalSize = srcSetCreator.getMaxAvailableSize(content, fileMeta, usage);
                         if (originalSize != null) {
-                            srcSetAttribute = "srcset=\"" + srcSetCreator.createSrcSet(fileurl, stringToBoolean(getAbsolute()), originalSize) + "\" ";
+                        	String srcset = srcSetCreator.createSrcSet(fileurl, stringToBoolean(getAbsolute()), originalSize);
+                        	if(!srcset.isEmpty())
+                        		srcSetAttribute = "srcset=\"" + srcset + "\" ";
                         }
                     }
                 }
@@ -281,9 +283,9 @@ public class Image extends Base implements DynamicAttributes {
             if( attribEdit != null && attribEdit.equals(this.getTMLContext().getcontent().getContentKey().toString()) && item != null){
                 String theLabel = getLabel();
                 StringBuffer prefix = createItemEditorDeclaration(item, "image", theLabel);
-                prefix.append("<span class=\"WGA-Item-Value\" id=\"item_"+ item +"\">");
+                prefix.append("<div class=\"WGA-Item-Value\" id=\"item_"+ item +"\">");
                 setPrefix(prefix.toString());
-                setSuffix("</span>\n</span>");
+                setSuffix("</div>\n</div>");
                 
                 if (imageHTML == null) {
                     imageHTML = "";

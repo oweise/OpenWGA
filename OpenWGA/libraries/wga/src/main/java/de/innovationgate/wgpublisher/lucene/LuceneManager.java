@@ -59,6 +59,11 @@ import org.apache.commons.vfs2.FileMonitor;
 import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.de.GermanAnalyzer;
+import org.apache.lucene.analysis.en.EnglishAnalyzer;
+import org.apache.lucene.analysis.es.SpanishAnalyzer;
+import org.apache.lucene.analysis.fr.FrenchAnalyzer;
+import org.apache.lucene.analysis.it.ItalianAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.index.CorruptIndexException;
@@ -66,11 +71,14 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriter.MaxFieldLength;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.queryParser.MultiFieldQueryParser;
 import org.apache.lucene.queryParser.QueryParser;
+import org.apache.lucene.queryParser.QueryParser.Operator;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.Similarity;
@@ -85,6 +93,7 @@ import org.apache.lucene.search.highlight.QueryTermScorer;
 import org.apache.lucene.search.highlight.WeightedTerm;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.util.Version;
 import org.dom4j.DocumentException;
 
 import de.innovationgate.utils.WGUtils;
@@ -123,6 +132,7 @@ import de.innovationgate.wga.common.beans.LuceneIndexItemRule;
 import de.innovationgate.wga.common.beans.csconfig.v1.PluginConfig;
 import de.innovationgate.wga.config.ContentStore;
 import de.innovationgate.wga.config.LuceneManagerConfiguration;
+import de.innovationgate.wga.config.WGAConfiguration;
 import de.innovationgate.wga.server.api.WGA;
 import de.innovationgate.wgpublisher.WGACore;
 import de.innovationgate.wgpublisher.lucene.analysis.FileHandler;
@@ -241,7 +251,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
     private static final String DOCTYPE_ALL = "all";
 
     private WGACore _core;
-
+    
     private long _indexInterval = 1000 * 5;
     private Indexer _indexer;
 
@@ -262,7 +272,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
     
     private volatile boolean _indexerIsRunning;
 
-    
+    private boolean _indexReleasedOnly=false;
     private int _booleanQueryMaxClauseCount = BooleanQuery.getMaxClauseCount();
     private int _maxDocsPerDBSession = 50;
     
@@ -422,7 +432,10 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
         
         if (Boolean.getBoolean(SYSPROP_USE_CONSTANT_IDF_SIMILARITY)) {
             _customSimilarity = new ConstantIDFSimilarity();
-    }
+        }
+        else{
+        	_customSimilarity = new ContantFieldNormSimilarity();
+        }
     }
     
     private void init() throws IOException, DocumentException {              
@@ -589,7 +602,20 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
     		// this happens on an initial WGA startup
     		return;
     	}
+    	
+    	if(_core.getWgaConfiguration().getLuceneManagerConfiguration().isUseLanguageAnalyzers()){
+            _core.addAnalyzerMapping("de", new GermanAnalyzer(org.apache.lucene.util.Version.LUCENE_35));
+            _core.addAnalyzerMapping("en", new EnglishAnalyzer(org.apache.lucene.util.Version.LUCENE_35));
+            _core.addAnalyzerMapping("it", new ItalianAnalyzer(org.apache.lucene.util.Version.LUCENE_35));
+            _core.addAnalyzerMapping("fr", new FrenchAnalyzer(org.apache.lucene.util.Version.LUCENE_35));
+            _core.addAnalyzerMapping("es", new SpanishAnalyzer(org.apache.lucene.util.Version.LUCENE_35));
+    	}
+    	else{
+    		_core.removeAllAnalyzerMappings();
+    	}
         
+    	_indexReleasedOnly = _core.getWgaConfiguration().getLuceneManagerConfiguration().isIndexReleasedContentsOnly();
+    	
         // check if each DB in _indexedDBKeys is in configfile and enabled by wga
         // if not create dropRequest
         Iterator itIndexedDbKeys = _indexedDbs.keySet().iterator();
@@ -603,9 +629,9 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                 // remove from indexed dbs, cannot be done in removeDatabase() because of current iteration over indexedDbKeys
                 //itIndexedDbKeys.remove(); // now done in removeDatabase via copy-replace
             } else if ( !dbConfig.isEnabled() ) {
-                    // if db was disabled, only remove from indexedDbs - do not drop index
-                    //itIndexedDbKeys.remove();
-                    removeDatabase(dbKey, false);
+                // if db was disabled, only remove from indexedDbs - do not drop index
+                //itIndexedDbKeys.remove();
+                removeDatabase(dbKey, false);
             }
         }        
         
@@ -831,7 +857,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
         // add to list and set service status running for DB
             Queue<IndexingRequest> requests = _additionRequestsMap.get(request.getDbkey());
         if (requests == null) {
-                requests = new ConcurrentLinkedQueue<LuceneManager.IndexingRequest>();
+        	requests = new ConcurrentLinkedQueue<LuceneManager.IndexingRequest>();
             _additionRequestsMap.put(request.getDbkey(), requests);
         }        
         requests.add(request);     
@@ -917,7 +943,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
         String langCode = content.getLanguage().getName();
         Analyzer analyzer = null;
         if (langCode != null) {
-            analyzer = _core.getAnalyzerForLanguageCode(langCode);
+            analyzer = _core.getAnalyzerForLanguageCode(langCode.substring(0, 2));
             if (analyzer == null) {
                 analyzer = _core.getDefaultAnalyzer();
             }
@@ -1068,6 +1094,8 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                 IndexWriter writer = null;
                 try {
                     writer = new IndexWriter(_indexDirectory, null, MaxFieldLength.UNLIMITED);
+                    if(_customSimilarity!=null)
+                    	writer.setSimilarity(_customSimilarity);
     
                     // additionrequests are grouped by dbKey
                     // get list from map
@@ -1157,13 +1185,15 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                             db.getSessionContext().setTask("WGA Lucene Indexer");
                             db.getSessionContext().setBatchProcess(true);
                             try {
-                                WGContent content = (WGContent) db.getDocumentByDocumentKey(request.getDocumentKey());
-                                if (content != null) {
-                                    addToIndex(writer, db, content);
-                                    info.docAdded();
-                                    docsWithinThisSession++;
-                                    // the content-core is not needed anymore for data gathering - so drop core to free HEAP
-                                	content.dropCore();                       
+                                WGContent content = (WGContent) db.getDocumentByKey(request.getDocumentKey());
+                                if (content != null){
+                                	if(content.getStatus().equals(WGContent.STATUS_RELEASE) || !_indexReleasedOnly) {
+	                                    addToIndex(writer, db, content);
+	                                    info.docAdded();
+	                                    docsWithinThisSession++;
+	                                    // the content-core is not needed anymore for data gathering - so drop core to free HEAP
+	                                	content.dropCore();
+                                	}
                                 }
                                 else {
                                     // content was deleted
@@ -1554,9 +1584,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
             String dbkey = db.getDbReference();
             LOG.debug("Indexing " + content.getDocumentKey() + " from db " + dbkey);
             
-
-                        
-            org.apache.lucene.document.Document document = new org.apache.lucene.document.Document();
+            Document document = new org.apache.lucene.document.Document();
             addKeyword(document, INDEXFIELD_UNIQUEKEY, buildUniqueIndexKey(content));
             addMetas(document, content, true);   
             addKeyword(document, INDEXFIELD_DOCTYPE, DOCTYPE_CONTENT);
@@ -1617,7 +1645,6 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                 useFileRuleBasedIndexing = false;
             }
             
-            
             List<String> filenames = content.getFileNames();
             if (filenames != null) {
                 Iterator<String> it = filenames.iterator();
@@ -1657,6 +1684,10 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                     
                     // add content metas to attachmentDoc - so this doc will hit the same meta queries
                     addMetas(attachmentDoc, content, false);
+                    // we don't want some of this METAs to be indexed in files:
+                    attachmentDoc.removeFields("TITLE");
+                    attachmentDoc.removeFields("DESCRIPTION");
+                    attachmentDoc.removeFields("KEYWORDS");
                     
                     // add file metas
                     WGFileMetaData md = content.getFileMetaData(filename);
@@ -1665,6 +1696,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                         while (metaInfos.hasNext()) {
                             MetaInfo metaInfo = metaInfos.next();
                             if (!metaInfo.isLuceneSpecialTreatment() && !metaInfo.getLuceneIndexType().equals(MetaInfo.LUCENE_INDEXTYPE_NOINDEX)) {
+                            	//LOG.info(filename + ": index file meta " + metaInfo.getName() + ":" + md.getMetaData(metaInfo.getName()));
                                 addMeta(attachmentDoc, metaInfo, md.getMetaData(metaInfo.getName()), true);
                             }
                         }
@@ -1719,19 +1751,18 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                             LOG.debug("No filehandler found for file " + filename + " of content " + content.getContentKey().toString() + " from db " + db.getDbReference() + ".");
                         }
                     } else {
+                    	//LOG.info("Indexing file " +filename + " of content " + content.getContentKey().toString() + " from db " + db.getDbReference() + ".");
                         WGFileMetaData fileMetaData = content.getFileMetaData(filename);
                         BinaryFieldData plaintext = fileMetaData.getPlainText();
                         if (plaintext != null) {
-                            Field allAttachments = new Field(INDEXFIELD_ALLATTACHMENTS, new InputStreamReader(plaintext.getInputStream()));
-                            document.add(allAttachments);
-                            
-                            Field allContent = new Field(INDEXFIELD_ALLCONTENT, new InputStreamReader(plaintext.getInputStream()));
-                            attachmentDoc.add(allContent);
-                            
+                        	Field allContent = new Field(INDEXFIELD_ALLCONTENT, new InputStreamReader(plaintext.getInputStream()));
                             if (luceneIndexConfig != null && luceneIndexConfig.isIndexFileContentOnDocuments()) {
-                               allContent = new Field(INDEXFIELD_ALLCONTENT, new InputStreamReader(plaintext.getInputStream()));
                                document.add(allContent);
-                            }                            
+                               continue;	// don't create attachmentDoc in index in this case. 
+                            }
+                            else{
+                                attachmentDoc.add(allContent);
+                            }
                         }                        
                     }
                     
@@ -1922,17 +1953,17 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
             if (metaInfo.getLuceneIndexType().equals(MetaInfo.LUCENE_INDEXTYPE_KEYWORD)) {
                                
                 if (!metaInfo.isMultiple()) {                          
-                        addKeyword(doc, metaInfo.getName(), value, metaInfo.getLuceneBoost());
-                        addSortField(doc, metaInfo.getName(), value);
-                        Iterator synonyms = metaInfo.getSynonyms().iterator();
-                        while (synonyms.hasNext()) {
-                            String synonym = (String) synonyms.next();
-                            addKeyword(doc, synonym, value, metaInfo.getLuceneBoost());
-                            addSortField(doc, synonym, value);
-                        }
-                        if (metaInfo.getLuceneAddToAllContent() && addToAllContent) {
-                            addUnStored(doc, INDEXFIELD_ALLCONTENT, value, metaInfo.getLuceneBoost());
-                        }
+                    addKeyword(doc, metaInfo.getName(), value, metaInfo.getLuceneBoost());
+                    addSortField(doc, metaInfo.getName(), value);
+                    Iterator synonyms = metaInfo.getSynonyms().iterator();
+                    while (synonyms.hasNext()) {
+                        String synonym = (String) synonyms.next();
+                        addKeyword(doc, synonym, value, metaInfo.getLuceneBoost());
+                        addSortField(doc, synonym, value);
+                    }
+                    if (metaInfo.getLuceneAddToAllContent() && addToAllContent) {
+                        addUnStored(doc, INDEXFIELD_ALLCONTENT, value, 1.0F);
+                    }
                 } else {
                     if (value == null) {
                         addKeyword(doc, metaInfo.getName(), "");
@@ -1942,12 +1973,15 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                             Object singleValue = it.next();
                             addKeyword(doc, metaInfo.getName(), singleValue);
                             if (metaInfo.getLuceneAddToAllContent() && addToAllContent) {
-                                addUnStored(doc, INDEXFIELD_ALLCONTENT, value, metaInfo.getLuceneBoost());
+                                addUnStored(doc, INDEXFIELD_ALLCONTENT, value, 1.0F);
                             }
                             Iterator synonyms = metaInfo.getSynonyms().iterator();
                             while (synonyms.hasNext()) {
                                 String synonym = (String) synonyms.next();
                                 addKeyword(doc, synonym, singleValue);
+                            }
+                            if (metaInfo.getLuceneAddToAllContent() && addToAllContent) {
+                                addUnStored(doc, INDEXFIELD_ALLCONTENT, singleValue, 1.0F);
                             }
                         }                                
                     }
@@ -1963,7 +1997,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                         addSortField(doc, synonym, value);
                     }
                     if (metaInfo.getLuceneAddToAllContent() && addToAllContent) {
-                        addUnStored(doc, INDEXFIELD_ALLCONTENT, value, metaInfo.getLuceneBoost());
+                        addUnStored(doc, INDEXFIELD_ALLCONTENT, value, 1.0F);
                     }
                 } else {
                     if (value != null) {
@@ -1971,13 +2005,13 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                         while (it.hasNext()) {
                             Object singleValue = it.next();
                             addUnStored(doc, metaInfo.getName(), singleValue, metaInfo.getLuceneBoost());
-                            if (metaInfo.getLuceneAddToAllContent() && addToAllContent) {
-                                addUnStored(doc, INDEXFIELD_ALLCONTENT, singleValue, metaInfo.getLuceneBoost());    
-                            }
                             Iterator synonyms = metaInfo.getSynonyms().iterator();
                             while (synonyms.hasNext()) {
                                 String synonym = (String) synonyms.next();
                                 addUnStored(doc, synonym, singleValue, metaInfo.getLuceneBoost());
+                            }
+                            if (metaInfo.getLuceneAddToAllContent() && addToAllContent) {
+                                addUnStored(doc, INDEXFIELD_ALLCONTENT, singleValue, 1.0F);
                             }
                         }                                
                     }
@@ -2038,7 +2072,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                     if (textToIndex != null) {                    
                         addUnStored(document, itemName.toLowerCase(), textToIndex, rule.getBoost());
                         if (!TECHNICAL_ITEMS.contains(itemName.toLowerCase())) {
-                            addUnStored(document, INDEXFIELD_ALLCONTENT, textToIndex, rule.getBoost());
+                            addUnStored(document, INDEXFIELD_ALLCONTENT, textToIndex, 1);
                         }
                     }
                 }
@@ -2398,7 +2432,7 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
         String dbkey = (String) event.getDatabase().getDbReference();
         IndexingRequest indexingRequest = new IndexingRequest(dbkey, event.getDocumentKey());
         addDeletionRequest(indexingRequest);
-        addAdditionRequest(indexingRequest);
+       	addAdditionRequest(indexingRequest);
     }
 
     protected void finalize() throws Throwable {
@@ -2410,6 +2444,10 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
     }
 
     public WGResultSet search(WGDatabase db, String phrase, Map parameters, WGA wga) throws WGQueryException {
+    	List<String> fields=new ArrayList<String>();
+    	return search(db, fields, phrase, parameters, wga);
+    }
+    public WGResultSet search(WGDatabase db, List<String> fields, String phrase, Map parameters, WGA wga) throws WGQueryException {
         
         if (wga == null) {
             wga = WGA.get(_core);
@@ -2563,39 +2601,11 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
             if (languagesPriorityList.size() <= 0) {
               searchWithDefaultAnalyzer = true;
             }
-            
-            //build phrase query                
-            BooleanQuery phraseQuery = new BooleanQuery();                
-            Iterator languageList = languagesPriorityList.iterator();                
-            while (languageList.hasNext()) {
-                WGLanguage languageItem = (WGLanguage) languageList.next();
-                Analyzer analyzer = _core.getAnalyzerForLanguageCode(languageItem.getName());
-                if (analyzer != null) {
-                    QueryParser parser = new IndexingRuleBasedQueryParser(INDEXFIELD_ALLCONTENT, analyzer, _indexedDbs, searchDBKeys, _metaKeywordFields);
-                    Query query = parser.parse(phrase);
-                    
-                    BooleanQuery testPhraseAndLangQuery = new BooleanQuery();
-                    testPhraseAndLangQuery.add(query, BooleanClause.Occur.MUST);
-                    testPhraseAndLangQuery.add(new TermQuery(new Term(WGContent.META_LANGUAGE, languageItem.getName())), BooleanClause.Occur.MUST);
-                    
-                    phraseQuery.add(testPhraseAndLangQuery, BooleanClause.Occur.SHOULD);
-                }
-                else {
-                    searchWithDefaultAnalyzer = true;
-                }
-            }
-            
-            if (searchWithDefaultAnalyzer) {
-                QueryParser parser = new IndexingRuleBasedQueryParser(INDEXFIELD_ALLCONTENT, _core.getDefaultAnalyzer(), _indexedDbs, searchDBKeys, _metaKeywordFields);
-                Query query = parser.parse(phrase);
-                phraseQuery.add(query, BooleanClause.Occur.SHOULD);
-            }
-            wholeQuery.add(phraseQuery, BooleanClause.Occur.MUST);
-            
                         
             // parse native options
             Sort sort = null;
             String sortFieldName = "";
+            Operator defaultOperator = QueryParser.AND_OPERATOR; 
             String nativeOptionsStr = (String) parameters.get(WGDatabase.QUERYOPTION_NATIVEOPTIONS);
             boolean includeVirtualContent = false;
             String doctype = DOCTYPE_CONTENT;
@@ -2632,6 +2642,12 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                     } else if (option.startsWith("doctype:")) {
                         doctype = option.substring("doctype:".length()).trim();
                     }
+                    else if(option.startsWith("operator:")) {
+                    	String op = option.substring("operator:".length()).trim();
+                    	if(op.equalsIgnoreCase("or"))
+                    		defaultOperator = QueryParser.OR_OPERATOR;
+                    }
+                    
                 }
             }    
             
@@ -2647,6 +2663,60 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
                 wholeQuery.add(new TermQuery(new Term(INDEXFIELD_DOCTYPE, doctype)), BooleanClause.Occur.MUST);
             }
 
+            //build phrase query                
+            BooleanQuery phraseQuery = new BooleanQuery();
+            phraseQuery.setBoost(10);
+            Iterator languageList = languagesPriorityList.iterator();     
+            
+            List<String> searchFields = new ArrayList<String>();
+            Map<String,Float> searchBoosts = new HashMap<String,Float>();
+            for(String field: fields){
+            	String[] parts = field.split("\\^");
+            	searchFields.add(parts[0]);
+            	if(parts.length==2){
+            		searchBoosts.put(parts[0], Float.parseFloat(parts[1]));
+            	}
+            }
+            if(!searchFields.contains("allcontent"))
+            	searchFields.add("allcontent");
+            if(!searchFields.contains("TITLE"))
+            	searchFields.add("TITLE");
+            if(!searchFields.contains("DESCRIPTION"))
+            	searchFields.add("DESCRIPTION");
+            if(!searchFields.contains("KEYWORDS"))
+            	searchFields.add("KEYWORDS");
+            
+            while (languageList.hasNext()) {
+                WGLanguage languageItem = (WGLanguage) languageList.next();
+                Analyzer analyzer = _core.getAnalyzerForLanguageCode(languageItem.getName().substring(0, 2));
+                if (analyzer != null) {
+                	QueryParser parser = new IndexingRuleBasedQueryParser(searchFields.toArray(new String[0]), analyzer, searchBoosts, _indexedDbs, searchDBKeys, _metaKeywordFields);
+                	parser.setDefaultOperator(defaultOperator);
+                    Query query = parser.parse(phrase);                    
+                    if(filterLanguages){
+	                    BooleanQuery testPhraseAndLangQuery = new BooleanQuery();
+	                    testPhraseAndLangQuery.add(query, BooleanClause.Occur.MUST);
+	                    testPhraseAndLangQuery.add(new TermQuery(new Term(WGContent.META_LANGUAGE, languageItem.getName())), BooleanClause.Occur.MUST);
+	                    phraseQuery.add(testPhraseAndLangQuery, BooleanClause.Occur.SHOULD);
+                    }
+                    else{
+                    	phraseQuery.add(query, BooleanClause.Occur.SHOULD);
+                    }
+                }
+                else {
+                    searchWithDefaultAnalyzer = true;
+                }
+            }
+            
+            if (searchWithDefaultAnalyzer) {
+            	QueryParser parser = new IndexingRuleBasedQueryParser(searchFields.toArray(new String[0]), _core.getDefaultAnalyzer(), searchBoosts, _indexedDbs, searchDBKeys, _metaKeywordFields);
+                parser.setDefaultOperator(defaultOperator);
+                Query query = parser.parse(phrase);
+                phraseQuery.add(query, BooleanClause.Occur.SHOULD);
+            }
+            //LOG.info(phraseQuery.toString());
+            wholeQuery.add(phraseQuery, BooleanClause.Occur.MUST);
+    
             TopDocs hits;
             //register executed query as output parameter
             parameters.put(WGDatabase.QUERYOPTION_RETURNQUERY, wholeQuery.toString());   
@@ -2913,24 +2983,22 @@ public class LuceneManager implements WGContentEventListener, WGDatabaseConnectL
 			}
     	}
     	
-    	//if (!_indexSearcher.getIndexReader().isCurrent()) {
-    		synchronized (this) {
-    			if (!_indexSearcher.getIndexReader().isCurrent()) {
-					// wait for current searches to finish and block further searches
-					_indexSearcherSemaphore.acquire(MAX_CONCURRENT_SEARCHES);
-    				try {
-    				    _indexSearcher.getIndexReader().close();
-    					_indexSearcher.close(); 
-    					_indexSearcher = new IndexSearcher(IndexReader.open(_indexDirectory, true));
-    					if (_customSimilarity != null) {
-                            _indexSearcher.setSimilarity(_customSimilarity);
-                        }
-    				} finally {    					
-    					_indexSearcherSemaphore.release(MAX_CONCURRENT_SEARCHES);	
-    				}
-    			}
-    		}   				
-    	//}	    	
+		synchronized (this) {
+			if (!_indexSearcher.getIndexReader().isCurrent()) {
+				// wait for current searches to finish and block further searches
+				_indexSearcherSemaphore.acquire(MAX_CONCURRENT_SEARCHES);
+				try {
+				    _indexSearcher.getIndexReader().close();
+					_indexSearcher.close(); 
+					_indexSearcher = new IndexSearcher(IndexReader.open(_indexDirectory, true));
+					if (_customSimilarity != null) {
+                        _indexSearcher.setSimilarity(_customSimilarity);
+                    }
+				} finally {    					
+					_indexSearcherSemaphore.release(MAX_CONCURRENT_SEARCHES);	
+				}
+			}
+		}   				
     	return _indexSearcher;
     }
     

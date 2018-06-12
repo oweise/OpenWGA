@@ -73,6 +73,7 @@ import de.innovationgate.wgpublisher.expressions.ExpressionEngineFactory;
 import de.innovationgate.wgpublisher.expressions.ExpressionResult;
 import de.innovationgate.wgpublisher.websockets.PageConnection;
 import de.innovationgate.wgpublisher.websockets.TMLPageWebSocket;
+import de.innovationgate.wgpublisher.webtml.Base.DynamicAttribute;
 import de.innovationgate.wgpublisher.webtml.actions.TMLAction;
 import de.innovationgate.wgpublisher.webtml.actions.TMLActionCallParameters;
 import de.innovationgate.wgpublisher.webtml.actions.TMLActionLink;
@@ -135,7 +136,9 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
                 String resolvedValue = getValue();
             
                 if (_valueType == DynamicAttributeValueType.ITEM_EXPRESSION) {
-                    return tmlContext.item(resolvedValue);
+                	if(resolvedValue.equals(resolvedValue.toUpperCase()))
+                		return tmlContext.meta(resolvedValue);
+                	else return tmlContext.item(resolvedValue);
                 }
                 else {
                     return resolvedValue;
@@ -248,8 +251,9 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
     protected String encode = null;
     private String sourceline = null;
     private String trim = null;
-    private String uid = null;
+	private String _wrap = null;
 
+    
     // Tags environment
     
     public void setResult(Object result) {
@@ -436,7 +440,7 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
             // Set boolean flags
             this.setEvalBody(true);
 
-            if (this.getVar() != null || this.getSessionvar() != null || this.getAppendvar() != null) {
+            if (this.getVar() != null || this.getPvar() != null || this.getSessionvar() != null || this.getAppendvar() != null) {
                 if (this.getOutput() != null && this.stringToBoolean(this.getOutput()) == true) {
                     this.setResultOutput(true);
                 }
@@ -556,32 +560,31 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
     private boolean mayExecute() throws WGException {
 
         String ifTerm = getIf();
+        String unlessTerm = getUnless();
+        
         if (ifTerm != null) {
             DynamicAttribute ifEquals = getStatus().dynamicOptions.get("if_equals");
             DynamicAttribute ifIn = getStatus().dynamicOptions.get("if_in");
-            if (!evaluateItemConditionAttribute(ifTerm, ifEquals, ifIn)) {
+            if (!evaluateItemConditionAttribute(ifTerm, ifEquals, ifIn))
                 return false;
-            }
-        }
+    	}
         
-        String unlessTerm = getUnless();
         if (unlessTerm != null) {
             DynamicAttribute unlessEquals = getStatus().dynamicOptions.get("unless_equals");
             DynamicAttribute unlessIn = getStatus().dynamicOptions.get("unless_in");
-            if (evaluateItemConditionAttribute(unlessTerm, unlessEquals, unlessIn)) {
+            if (evaluateItemConditionAttribute(unlessTerm, unlessEquals, unlessIn))
                 return false;
-            }
         }
         
         return true;
         
     }
 
-    /**
+	/**
      * @param condition
      * @param equalsAttribute
      * @param inAttribute
-     * @return
+     * @return true|false
      * @throws WGException
      * @throws WGIllegalArgumentException
      */
@@ -638,39 +641,6 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
         }
         
         // We want the items from the condition to evaluate to boolean true
-        else {
-            if (new BooleanItemExpression(condition).isTrue(getTMLContext()) == false) {
-                return false;
-            }
-        }
-        
-        return true;
-    }
-    
-    protected boolean evaluateItemInConditionAttribute(String condition, DynamicAttribute inAttribute) throws WGException, WGIllegalArgumentException {
-        
-        // We want to equal the items from the condition to values
-        if (inAttribute != null) {
-            
-            // Equality to a list of item expressions
-            if (inAttribute.getValueType() == DynamicAttributeValueType.ITEM_EXPRESSION) {
-                if (new BooleanItemExpression(condition, inAttribute.getValue()).isTrue(getTMLContext()) == false) {
-                    return false;
-                }
-            }
-            
-            // Equality to a constant string value
-            else {
-                if (new BooleanItemExpression(condition).equalsValue(getTMLContext(), inAttribute.getValue()) == false) {
-                    return false;
-                }
-            } 
-                
-            
-            
-        }
-        
-        // We want the items from the condition to be true
         else {
             if (new BooleanItemExpression(condition).isTrue(getTMLContext()) == false) {
                 return false;
@@ -1016,6 +986,9 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
                     this.getTMLContext().setSessionVar(this.getSessionvar(), optionallyReduceListValue(status.result), false, false);
                 }
                 
+                if (this.getPvar() != null) {
+                    this.getTMLContext().getportlet().setvar(this.getPvar(), optionallyReduceListValue(status.result));
+                }
                 if (this.getPsessionvar() != null) {
                     this.getTMLContext().getportlet().setsessionvar(this.getPsessionvar(), optionallyReduceListValue(status.result), false, false);
                 }
@@ -1225,19 +1198,13 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
         
     }
 
-    public void tmlStartTag() throws TMLException, WGException {
-    }
+    public void tmlStartTag() throws TMLException, WGException {};
 
-;
+    public void tmlAfterBody() throws TMLException, WGException {};
 
-    public void tmlAfterBody() throws TMLException, WGException {
-    };
+    public void tmlInitBody() throws TMLException, WGException {};
 
-    public void tmlInitBody() throws TMLException, WGException {
-    };
-
-    public void tmlEndTag() throws TMLException, WGException {
-    };
+    public void tmlEndTag() throws TMLException, WGException {};
 
     /**
      * Gets the context
@@ -1311,23 +1278,6 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
      * @return Returns a String
      */
     public String getVar() {
-        
-        // Retrieve portlet variable name + prefix, if present
-        String pvar = getPvar();
-        if (pvar != null && getTMLContext() != null) {
-            TMLPortlet portlet;
-            try {
-                portlet = getTMLContext().getportlet();
-            }
-            catch (WGAPIException e) {
-                log.error("Exception retrieving portlet variable name", e);
-                return null;
-            }
-            if (portlet != null && !portlet.isroot()) {
-                return portlet.getVarPrefix() + pvar;
-            }
-        }
-        
         return this.getTagAttributeValue("var", var, null);
     }
 
@@ -1357,8 +1307,17 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
     public String getResultString(boolean includeFormatting) {
 
         BaseTagStatus status = getStatus();
-        return status.getResultString(includeFormatting, stringToBoolean(getTrim()));
-
+        String result = status.getResultString(includeFormatting, stringToBoolean(getTrim())); 
+        String _w = getWrap();
+        
+        if(result.length()>0 && _w!=null && !_w.isEmpty() && includeFormatting){
+        	try {        		
+        		return "<" + _w + buildDynamicHtmlAttributes("wrap") + ">" + result + "</" + _w + ">";
+			} catch (WGException e) {
+				e.printStackTrace();
+			}
+        }
+        return result;
     }
 
 
@@ -1931,7 +1890,7 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
 
 
         if (script.equals("htmlhead")) {
-            scriptresult.append("<script type=\"text/javascript\" src=\"" + getWGPPath() + "/static/js/htmlhead.js" + URL_VERSION_PARAMETER + "\"></script>\n");
+            scriptresult.append("<script src=\"" + getWGPPath() + "/static/js/htmlhead.js" + URL_VERSION_PARAMETER + "\"></script>\n");
         }
 
         if (includedscripts == null) {
@@ -2008,31 +1967,26 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
     	}
     	if(includeHTMLHeadScript)
     		this.appendResult(includeScript("htmlhead"));
-    	this.appendResult("<script type=\"text/javascript\" id=\"wga-htmlhead\">");
-    	this.appendResult("WGA.contextpath=\"" + getWGPPath() + "\";");    // used by htmlhead.js since wga-4
-    	this.appendResult("WGA.uriHash =\"" + getTMLContext().getUriHash() + "\";");
+
+    	StringBuilder jscodeBuilder = new StringBuilder();
     	
-    	StringBuilder out = new StringBuilder();
-    	initPageConnectionClient(out);
-    	this.appendResult(out.toString());
+    	if(!getWGPPath().isEmpty())
+    		jscodeBuilder.append("WGA.contextpath=\"" + getWGPPath() + "\";");    // used by htmlhead.js since wga-4
+
+    	//jscodeBuilder.append("WGA.uriHash =\"" + getTMLContext().getUriHash() + "\";");
+    	
+    	initPageConnectionClient(jscodeBuilder);
     	
     	if (getStatus().debugNode != null) {
-    	    this.appendResult("WGA.debug = true;");
+    		jscodeBuilder.append("WGA.debug = true;");
     	}
     	
-        this.appendResult("</script>\n");
-    
-    	// optional includes for input fields	
-        //	no longer supported since ... a long time. Removed Code.
-        /*
-         * 	We don't have any includeble scripts anymore in 2016
-    	if (scripts!=null && !scripts.equalsIgnoreCase("none")){
-    		java.util.StringTokenizer options = new java.util.StringTokenizer(scripts, ",");
-    		while (options.hasMoreTokens()) {
-    			this.appendResult(includeScript(options.nextToken().trim()));
-    		}
+    	String jscode = jscodeBuilder.toString();
+    	if(!jscode.isEmpty()){
+    		this.appendResult("<script id=\"wga-htmlhead\">");
+    		this.appendResult(jscode);
+    		this.appendResult("</script>\n");
     	}
-    	*/
     	
     	// Process HTML head inclusion modules
     	for (HTMLHeadInclusion inc : getCore().getHtmlHeadInclusions()) {
@@ -2078,7 +2032,7 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
     	.append(WGUtils.encodeJS(pageConn.getPageId())).append("', '")
     	.append(getTMLContext().gethttpsession().getId()).append("', ")
     	.append(noCloseHandler)
-    	.append(");});");
+    	.append(")});");
     	
     	pageConn.setClientInited(true);
     }
@@ -2217,16 +2171,11 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
         this.appendvar = appendvar;
     }
 
-    public String getUid() {
-        return uid;
-    }
-
-    public void setUid(String uid) {
-        this.uid = uid;
-    }
-
-
     protected String buildDynamicHtmlAttributes() throws WGException {
+    	return buildDynamicHtmlAttributes("html");
+    }
+    
+    protected String buildDynamicHtmlAttributes(String prefix) throws WGException {
         
         Map<String,DynamicAttribute> dynAtts = getStatus().dynamicOptions;
         if (dynAtts == null) {
@@ -2235,7 +2184,7 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
         
         Map<String,String> htmlAtts = new HashMap<String,String>();
         for (DynamicAttribute att : dynAtts.values()) {
-            if (att.getPrefix().equals("html")) {
+            if (att.getPrefix().equals(prefix)) {
                 Object value = att.getDynamicValue(getTMLContext());
                 if (value != null) {
                     htmlAtts.put(att.getBaseName(), String.valueOf(value));
@@ -2314,7 +2263,6 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
 
     public void defaultSetDynamicAttribute(List<String> prefixes, String uri, String localName, Object value) throws JspException {
         
-        
         for (String prefix : prefixes) {
             if (localName.startsWith(prefix + "_") || localName.startsWith(prefix + "-")) {
 
@@ -2331,12 +2279,10 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
                 
                 dynAtts.put(prefix + "_" + baseName, new DynamicAttribute(localName, prefix, baseName, String.valueOf(value), divider == '-' ? DynamicAttributeValueType.ITEM_EXPRESSION : DynamicAttributeValueType.STRING));
                 return;
-
-                
             }
         }
         
-        getCore().getLog().error("WebTML-Attribute '" + localName + "' is unknown");
+        getCore().getLog().warn("Attribute '" + localName + "' is unknown for TML tag <tml:" + getTagName() + "> and will be ignored");
 
     }
 
@@ -2347,7 +2293,7 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
     public void setIf(String if1) {
         _if = if1;
     }
-
+    
     public String getUnless() {
         return getTagAttributeValue("unless", _unless, null);
     }
@@ -2512,6 +2458,15 @@ public abstract class Base extends BodyTagSupport implements DynamicAttributes {
     }
 
     protected List<String> getDynamicAttributePrefixes() {
-        return WGUtils.list("if", "unless");
+        return WGUtils.list("wrap", "if", "unless");
     }
+
+
+    public String getWrap(){
+    	return getTagAttributeValue("wrap", _wrap, null);
+    }
+    public void setWrap(String wrap){
+    	_wrap = wrap;
+    }
+
 }

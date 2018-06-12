@@ -477,7 +477,7 @@ public class WGPDispatcher extends HttpServlet {
 
                 String domain = request.getParameter("domain");
                 _core.logout(domain, request.getSession(), request, response, true);
-                sendRedirect(response, request.getParameter("redirect"));
+                sendRedirect(request, response, request.getParameter("redirect"));
 
             }
             else if (path.equals("/ajaxform")) {
@@ -492,14 +492,12 @@ public class WGPDispatcher extends HttpServlet {
             handleAjaxFailure(exc, request, response);
         }
         catch (Exception exc) {
-            if (!(exc instanceof HttpErrorException)) {
-                _log.error("Error in request processing", exc);
-            }
+            _log.error("Exception in processing of request URL " + String.valueOf(request.getRequestURL()), exc);
             request.setAttribute(WGACore.ATTRIB_EXCEPTION, exc);
             throw new ServletException(exc);
         }
         catch (Error err) {
-            _log.error("Error in request processing", err);
+            _log.error("Error in processing of request URL " + String.valueOf(request.getRequestURL()), err);
             request.setAttribute(WGACore.ATTRIB_EXCEPTION, err);
             throw new ServletException(err);
         }
@@ -518,43 +516,44 @@ public class WGPDispatcher extends HttpServlet {
             String messageShown = (String) request.getSession().getAttribute(SESSION_AJAX_GENERAL_FAILURE_MESSAGE_SHOWN);
                     
             StringBuffer js = new StringBuffer();
+            String errorMsg = getCore().getSystemLabel("tml", exc.getLabelKey(), request);
             if (!"true".equals(messageShown)) {
                 request.getSession().setAttribute(SESSION_AJAX_GENERAL_FAILURE_MESSAGE_SHOWN, "true");
                 StringBuffer text = new StringBuffer();
                 text.append(getCore().getSystemLabel("tml", "ajax.failure.intro", request));
                 text.append("\n\n");
-                text.append(getCore().getSystemLabel("tml", exc.getLabelKey(), request));
+                text.append(errorMsg);
                 if (exc.getDetailMessage() != null) {
-                    text.append("\n\n").append(exc.getDetailMessage());
+                    text.append(":\n\n").append(exc.getDetailMessage());
                 }
                 text.append("\n\n");
                 text.append(getCore().getSystemLabel("tml", "ajax.failure.reload", request));
                 
                 WGA wga = WGA.get(request, response, getCore());
                 js.append("WGA.util.showReloadMessage(\"" + wga.encode("javascript", text.toString()) + "\");\n");
-            }
 
-            Writer writer = response.getWriter();
-            
-            if (exc.getAjaxType() == AjaxFailureException.AJAXTYPE_FORMPOST) {
-                // The formpost request only executes a single script tag without surroundings
-                writer.write("<script type=\"text/javascript\">\n");
-                writer.write(js.toString());
-                writer.write("\n</script>");
+	            Writer writer = response.getWriter();
+	            
+	            if (exc.getAjaxType() == AjaxFailureException.AJAXTYPE_FORMPOST) {
+	                // The formpost request only executes a single script tag without surroundings
+	                writer.write("<script>\n");
+	                writer.write(js.toString());
+	                writer.write("\n</script>");
+	            }
+	            else {
+	                // For AJAX norefresh. Protect from view via HTML Comment
+	                writer.write("//" + errorMsg + "\n<!--\n");
+	                writer.write(js.toString());
+	                writer.write("\n//-->\n");
+	                
+	                // For regular AJAX, protect from norefresh via JS comment
+	                writer.write("/*" + errorMsg + "<script>\n");
+	                writer.write(js.toString());
+	                writer.write("\n</script> */");
+	            }
+	            
+	            writer.flush();
             }
-            else {
-                // For AJAX norefresh. Protect from view via HTML Comment
-                writer.write("//<!--\n");
-                writer.write(js.toString());
-                writer.write("\n//-->\n");
-                
-                // For regular AJAX, protect from norefresh via JS comment
-                writer.write("/*\n<script type=\"text/javascript\">\n");
-                writer.write(js.toString());
-                writer.write("\n</script> */");
-            }
-            
-            writer.flush();
             
         }
         catch (Exception e) {
@@ -621,7 +620,7 @@ public class WGPDispatcher extends HttpServlet {
                 // render response
                 response.setContentType("text/html");
                 PrintWriter out = response.getWriter();
-                out.write("<script type=\"text/javascript\">");
+                out.write("<script>");
                 out.write("parent.WGA.ajax.formCallback(" + actionDef.toJavaScriptObject() + ");");
                 out.write("</script>");
                 
@@ -684,13 +683,13 @@ public class WGPDispatcher extends HttpServlet {
         if (isLoginSuccessful) {
 
             if (redirect != null) {
-                sendRedirect(response, redirect);
+                sendRedirect(request, response, redirect);
             }
             else if (referer != null) {
                 request.setAttribute(WGACore.ATTRIB_LOGINERROR, "No redirect specified.");
                 de.innovationgate.utils.URLBuilder builder = new de.innovationgate.utils.URLBuilder(new java.net.URL(referer));
                 builder.setParameter("loginerror", "2");
-                sendRedirect(response, builder.build(false));
+                sendRedirect(request, response, builder.build(false));
             }
             else {
                 response.setStatus(HttpServletResponse.SC_OK);
@@ -712,7 +711,7 @@ public class WGPDispatcher extends HttpServlet {
             else if (referer != null) {
                 de.innovationgate.utils.URLBuilder builder = new de.innovationgate.utils.URLBuilder(new java.net.URL(referer));
                 builder.setParameter("loginerror", "1");
-                sendRedirect(response, builder.build(false).toString());
+                sendRedirect(request, response, builder.build(false).toString());
             }
             else {
                 response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid login");
@@ -738,14 +737,6 @@ public class WGPDispatcher extends HttpServlet {
         WGARequestInformation reqInfo = (WGARequestInformation) request.getAttribute(WGARequestInformation.REQUEST_ATTRIBUTENAME);
 
         try {
-            
-            // Thread.currentThread().setContextClassLoader(WGACore.getLibraryLoader());
-
-            // Retrieve session
-//            javax.servlet.http.HttpSession session = request.getSession();
-//            if (session.isNew()) {
-//                session.setAttribute(SESSION_VARS, new HashMap());
-//            }
 
             // Parse request
             WGPRequestPath path = WGPRequestPath.parseRequest(this, request, response);
@@ -791,7 +782,7 @@ public class WGPDispatcher extends HttpServlet {
             }
 
             if (iPathType == WGPRequestPath.TYPE_UNDEFINED_HOMEPAGE) {
-                throw new HttpErrorException(HttpServletResponse.SC_NOT_FOUND, "No home page was defined for database '" + path.getDatabaseKey() + "'. Please specify an explicit content path.", path
+                throw new HttpErrorException(HttpServletResponse.SC_NOT_FOUND, "No home page was defined for app '" + path.getDatabaseKey() + "'. Please specify an explicit content path.", path
                         .getDatabaseKey());
             }
 
@@ -848,7 +839,7 @@ public class WGPDispatcher extends HttpServlet {
                     sendPermanentRedirect(response, url);
                 }
                 else {
-                    sendRedirect(response, url);
+                    sendRedirect(request, response, url);
                 }
             }
             else if (iPathType != WGPRequestPath.TYPE_RESOURCE && iPathType != WGPRequestPath.TYPE_STATICTML && !_core.getContentdbs().containsKey(path.getDatabaseKey())) {
@@ -881,7 +872,7 @@ public class WGPDispatcher extends HttpServlet {
                                 lastRedirectCookie.setMaxAge(-1);
                                 lastRedirectCookie.setPath("/");
                                 ((WGCookie)lastRedirectCookie).addCookieHeader(response);
-                                sendRedirect(response, redirectPath);
+                                sendRedirect(request, response, redirectPath);
                                 break;
                             }
                         }
@@ -929,7 +920,7 @@ public class WGPDispatcher extends HttpServlet {
         catch (HttpErrorException exc) {
             request.setAttribute(WGACore.ATTRIB_EXCEPTION, exc);
             ProblemOccasion occ = new PathDispatchingOccasion(request, exc.getDbHint());
-            _core.getProblemRegistry().addProblem(Problem.create(occ, "dispatching.http404#" + request.getRequestURI(), ProblemSeverity.LOW));
+            _core.getProblemRegistry().addProblem(Problem.create(occ, "dispatching.http404#" + request.getRequestURL(), ProblemSeverity.LOW));
             if (!response.isCommitted()) {
                 // throw exception to display errorpage - with senderror() the
                 // applicationserver use the buildin errorpage
@@ -937,6 +928,7 @@ public class WGPDispatcher extends HttpServlet {
                     response.sendError(exc.getCode(), exc.getMessage());
                 }
                 else {
+                	_log.error("Exception in processing request from " + request.getRemoteAddr() + " to URL " + String.valueOf(request.getRequestURL()));
                     throw new ServletException(exc);
                 }
             }
@@ -1092,7 +1084,7 @@ public class WGPDispatcher extends HttpServlet {
         Writer out = response.getWriter();
         out.write("<HTML><HEAD>");
 
-        out.write("\n<script type=\"text/javascript\">\nvar running=" + Boolean.valueOf(job.isRunning()).toString() + ";\n</script>\n");
+        out.write("\n<script>\nvar running=" + Boolean.valueOf(job.isRunning()).toString() + ";\n</script>\n");
 
         /*
          * if (job.isRunning()) {
@@ -1169,14 +1161,14 @@ public class WGPDispatcher extends HttpServlet {
                     if (!content.getStatus().equals(WGContent.STATUS_DRAFT) && request.getParameter("forceVLink") == null) {
 
                         String url = getVirtualContentURL(request, database, path, content);
-                        sendRedirect(response, url);
+                        sendRedirect(request, response, url);
                         return;
                     }
                 }
                 else {
                     String vLink = buildVirtualLink(WGA.get(request, response, getCore()), content, path.getMediaKey(), path.getLayoutKey());
                     if (vLink != null) {
-                        sendRedirect(response, vLink);
+                        sendRedirect(request, response, vLink);
                         return;
                     }
                     else {
@@ -1231,7 +1223,7 @@ public class WGPDispatcher extends HttpServlet {
         TMLUserProfile tmlUserProfile = null;
         try {
             tmlUserProfile = getCore().getPersManager().prepareUserProfileForRequest(request, response, content, database, formData, isAjax);
-            if (info != null) {
+            if (info != null && tmlUserProfile!=null) {
                 info.setProfile(tmlUserProfile);
             }
         } 
@@ -1509,13 +1501,13 @@ public class WGPDispatcher extends HttpServlet {
     private void sendNoContentNotification(WGPRequestPath path, javax.servlet.http.HttpServletRequest request, javax.servlet.http.HttpServletResponse response, WGDatabase database, boolean mayRedirectToLogin)
             throws IOException, HttpErrorException, WGException {
         if (mayRedirectToLogin && request.getQueryString() != null && request.getQueryString().toLowerCase().indexOf("login") != -1 && (!database.isSessionOpen() || database.getSessionContext().isAnonymous())) {
-            sendRedirect(response, getLoginURL(request, database, path.getCompleteURL()));
+            sendRedirect(request, response, getLoginURL(request, database, path.getCompleteURL()));
         }
         else {
 
             if (isBrowserInterface(request.getSession()) && (path.getPathType() == WGPRequestPath.TYPE_TML || path.getPathType() == WGPRequestPath.TYPE_UNKNOWN_CONTENT)) {
                 String url = getNoContentNotificationURL(request, database, path);
-                sendRedirect(response, url);
+                sendRedirect(request, response, url);
             }
             else {
                 if (path.getTitlePathURL() != null) {
@@ -1535,7 +1527,7 @@ public class WGPDispatcher extends HttpServlet {
             throws IOException, HttpErrorException, WGException {
 
         if (request.getQueryString() != null && request.getQueryString().toLowerCase().indexOf("login") != -1) {
-            sendRedirect(response, getLoginURL(request, database, path.getCompleteURL()));
+            sendRedirect(request, response, getLoginURL(request, database, path.getCompleteURL()));
         }
         else {
             throw new HttpErrorException(404, "No file container of name " + path.getContainerKey(), path.getDatabaseKey());
@@ -1565,10 +1557,19 @@ public class WGPDispatcher extends HttpServlet {
 
     }
 
-    protected void sendRedirect(javax.servlet.http.HttpServletResponse response, String virtualLink) throws IOException {
+    protected void sendRedirect(HttpServletRequest request, javax.servlet.http.HttpServletResponse response, String virtualLink) throws IOException {
         // send redirect always via j2ee method
         // B00004862
-        response.sendRedirect(response.encodeRedirectURL(virtualLink));
+    	
+    	try {
+    		// #00005082: try to use absolute URLs for redirects if possible
+			String url = WGA.get(request, response, _core).urlBuilder(virtualLink).build(true);
+			response.sendRedirect(response.encodeRedirectURL(url));
+		} catch (WGException e) {
+			_core.getLog().warn("Unable to create absolute Redirect URL. Using relative URL", e);
+			response.sendRedirect(response.encodeRedirectURL(virtualLink));
+		}
+    	
     }
 
     /**
@@ -1794,7 +1795,21 @@ public class WGPDispatcher extends HttpServlet {
                 }
             }
         }
-
+        
+        // Try sequence (hex)
+    	try{
+        	long seq = Long.parseLong(completeId, 16);
+        	if(seq!=0){
+        		entry = database.getStructEntryBySequence(seq);
+            	if(entry!=null){
+                    content = languageChooser.selectContentForPage(entry, isBI);
+                    if (content != null)
+                        return content;
+            	}
+        	}
+    	}
+    	catch(NumberFormatException e){}	// ignore format errors
+    
         // Try to use key as name only
         content = languageChooser.selectContentForName(database, completeId, isBI);
         if (content != null) {
@@ -1929,20 +1944,17 @@ public class WGPDispatcher extends HttpServlet {
                     if (!((WGContent) fileContainer).getStatus().equals(WGContent.STATUS_RELEASE)) {
                         isAnonymousAccessible = false;
                     }
-                    // check readers
-                    if (isAnonymousAccessible) {
-                        isAnonymousAccessible = ((WGContent) fileContainer).getReaders().size() == 0;
+                    else {
+                    	// check readers
+                    	isAnonymousAccessible = ((WGContent) fileContainer).isPublic();
                     }
                 }
             }
 
-            if (isAnonymousAccessible && fileContainer.getFileSize(fileName) >= externalFileServingConfig.getThreshold()) {
-                // file is anonymous accessible and above external serving
-                // threshold
+            if (isAnonymousAccessible) {
                 dispatchFileExternalImpl(externalFileServingConfig, path, request, response, database, fileContainer);
             }
             else {
-
                 dispatchFileDefaultImpl(path, request, response, database, fileContainer);
             }
         }
@@ -1957,12 +1969,33 @@ public class WGPDispatcher extends HttpServlet {
     private void dispatchFileExternalImpl(ExternalFileServingConfig config, WGPRequestPath path, HttpServletRequest request, HttpServletResponse response, final WGDatabase database,
             final WGDocument fileContainer) throws WGAPIException, IOException, HttpErrorException, WGException {
 
-        final String filename = path.getFileName();
-
-        File dbRoot = config.getRootForDB(database.getDbReference());
+    	final String filename = path.getFileName();
+    	
+    	PublishingFile publishingFile = new DocumentPublishingFile(this, fileContainer, filename);
+    	String derivate = request.getParameter(URLPARAM_DERIVATE);
+        if (derivate != null) {
+            DerivateQuery derivateQuery = getCore().getFileDerivateManager().parseDerivateQuery(derivate);
+            DocumentPublishingFile docPublishingFile = (DocumentPublishingFile) publishingFile;
+            WGFileDerivateMetaData derivateMd = docPublishingFile.queryDerivate(derivateQuery, new ClientHints());
+            if (derivateMd != null) {
+                publishingFile = new DerivatePublishingFile(this, docPublishingFile.getContainer(), derivateMd);
+            }
+            else if (!isFallbackToOriginalOnDerivateQuery(derivateQuery, publishingFile)) {
+                throw new WGNotSupportedException("Derivate queries are not supported on this file type");
+            }                                                
+        }
+        
+        if(publishingFile.getFileSize()<config.getThreshold()){
+        	dispatchFileDefaultImpl(path, request, response, database, fileContainer);
+        	return;
+        }
+        	
+        final PublishingFile thePublishingFile = publishingFile;	// make it final for thread handling
+        final File dbRoot = config.getRootForDB(database.getDbReference());
         if (!dbRoot.exists()) {
             dbRoot.mkdir();
         }
+        
         File externalCacheFolder = new File(dbRoot, fileContainer.getDocumentKey().replaceAll("/", ":"));
         if (!externalCacheFolder.exists()) {
             externalCacheFolder.mkdir();
@@ -1972,84 +2005,73 @@ public class WGPDispatcher extends HttpServlet {
             // fallback to normal dispatch
             _core.getLog().warn("Unable to create external file cache directory '" + externalCacheFolder.getAbsolutePath() + "'. Performing file dispatch in default mode.");
             dispatchFileDefaultImpl(path, request, response, database, fileContainer);
+            return;
+        }
+        
+    	String cacheFileName = "[" + filename + "]";
+    	if(path.getQueryString()!=null)
+    		cacheFileName += path.getQueryString().hashCode();
+    	String mimeType = publishingFile.getContentType();
+    	cacheFileName += "." + WGFactory.getMimetypeDeterminationService().determineSuffixByMimeType(mimeType);
+    	
+    	final File cachedFile = new File(externalCacheFolder, cacheFileName);
+
+        if (cachedFile.exists()) {
+            // perform redirect
+        	//_core.getLog().info("redirect " + filename + " (" + path.getQueryString() + ") " + publishingFile.getContentType() + ") to " + cacheFileName);
+        	response.sendRedirect(config.getRootURL() + database.getDbReference() + "/" + fileContainer.getDocumentKey().replaceAll("/", ":") + "/" + cacheFileName);
         }
         else {
-            final File cachedFile = new File(externalCacheFolder, path.getFileName());
+            // cache file
+            Thread cacheTask = new Thread() {
 
-            if (isExternalCacheUpToDate(cachedFile, fileContainer, filename)) {
-                // perform redirect
-                response.sendRedirect(config.getRootURL() + database.getDbReference() + "/" + fileContainer.getDocumentKey().replaceAll("/", ":") + "/" + filename);
-            }
-            else {
-                // cache file
-                Thread cacheTask = new Thread() {
+                @Override
+                public void run() {
+                    synchronized (WGPDispatcher.class.getName() + ".filecache." + cachedFile.getAbsolutePath().intern()) {
+                        try {
+                            database.openSession();
 
-                    @Override
-                    public void run() {
-                        synchronized (WGPDispatcher.class.getName() + ".filecache." + cachedFile.getAbsolutePath().intern()) {
+                            File temp = new File(cachedFile.getParent(), UIDGenerator.generateUID() + ".tmp");
+                            InputStream in = null;
+                            OutputStream out = null;
                             try {
-                                database.openSession();
-                                // perform synchronized up to date check
-                                if (!isExternalCacheUpToDate(cachedFile, fileContainer, filename)) {
-
-                                    File temp = new File(cachedFile.getParent(), UIDGenerator.generateUID() + ".tmp");
-                                    WGDocument container = database.getDocumentByKey(fileContainer.getDocumentKey());
-                                    InputStream in = null;
-                                    OutputStream out = null;
-                                    try {
-                                        in = container.getFileData(filename);
-                                        out = new FileOutputStream(temp);
-                                        WGUtils.inToOut(in, out, 1024);
-                                    }
-                                    finally {
-                                        if (in != null) {
-                                            try {
-                                                in.close();
-                                            }
-                                            catch (IOException e) {
-                                            }
-                                        }
-                                        if (out != null) {
-                                            try {
-                                                out.close();
-                                            }
-                                            catch (IOException e) {
-                                            }
-                                        }
-                                    }
-
-                                    temp.renameTo(cachedFile);
-                                    cachedFile.setLastModified(fileContainer.getFileLastModified(filename).getTime());
-                                }
-                            }
-                            catch (Throwable e) {
-                                _core.getLog().error("Unable to create cache for external file serving.", e);
+                                in = thePublishingFile.getInputStream();
+                                out = new FileOutputStream(temp);
+                                WGUtils.inToOut(in, out, 1024);
                             }
                             finally {
-                                WGFactory.getInstance().closeSessions();
+                                if (in != null) {
+                                    try {
+                                        in.close();
+                                    }
+                                    catch (IOException e) {}
+                                }
+                                if (out != null) {
+                                    try {
+                                        out.close();
+                                    }
+                                    catch (IOException e) {}
+                                }
                             }
+                            temp.renameTo(cachedFile);
+                        }
+                        catch (Throwable e) {
+                            _core.getLog().error("Unable to create cache for external file serving.", e);
+                        }
+                        finally {
+                            WGFactory.getInstance().closeSessions();
                         }
                     }
+                }
 
-                };
+            };
 
-                cacheTask.start();
+            cacheTask.start();
+            
 
-                dispatchFileDefaultImpl(path, request, response, database, fileContainer);
-            }
-
+            dispatchFileDefaultImpl(path, request, response, database, fileContainer);
         }
-    }
 
-    private boolean isExternalCacheUpToDate(File cachedFile, WGDocument fileContainer, String filename) throws WGAPIException {
-
-        if (cachedFile.exists() && WGUtils.cutoffTimeMillis(cachedFile.lastModified()) == WGUtils.cutoffTimeMillis(fileContainer.getFileLastModified(filename).getTime())
-                && cachedFile.length() == fileContainer.getFileSize(filename)) {
-            return true;
-        }
-        else {
-            return false;
-        }
     }
 
     private void dispatchFileDefaultImpl(WGPRequestPath path, HttpServletRequest request, HttpServletResponse response, WGDatabase database, WGDocument fileContainer) throws IOException,
@@ -2064,7 +2086,27 @@ public class WGPDispatcher extends HttpServlet {
         
         if (fileExpirationMinutes > 0) {
             int fileExpirationSeconds = fileExpirationMinutes * 60;
-            response.setHeader("Cache-Control", "private, max-age=" + fileExpirationSeconds);
+
+            // check if file is anonymous accessible
+            boolean isAnonymousAccessible = database.isAnonymousAccessible();
+            if (isAnonymousAccessible) {
+                // perform further document level checks
+                if (fileContainer != null && fileContainer instanceof WGContent) {
+                    // check status
+                    if (!((WGContent) fileContainer).getStatus().equals(WGContent.STATUS_RELEASE)) {
+                        isAnonymousAccessible = false;
+                    }                    
+                    else {
+                    	// check readers
+                        isAnonymousAccessible = ((WGContent) fileContainer).isPublic(); 
+                    }
+                }
+            }
+
+            if (isAnonymousAccessible) {
+            	response.setHeader("Cache-Control", "public, max-age=" + fileExpirationSeconds);
+            }
+            else response.setHeader("Cache-Control", "private, max-age=" + fileExpirationSeconds);
         }
 
         // Create publishing file object, which will provide the data
@@ -2733,7 +2775,10 @@ public class WGPDispatcher extends HttpServlet {
         int fileExpirationMinutes = ((Integer) _core.readPublisherOptionOrDefault(database, WGACore.DBATTRIB_FILEEXPIRATION_MINUTES)).intValue();
         if (fileExpirationMinutes > 0) {
             int fileExpirationSeconds = fileExpirationMinutes * 60;
-            response.setHeader("Cache-Control", "private, max-age=" + fileExpirationSeconds);
+            boolean isAnonymousAccessible = database.isAnonymousAccessible();
+            if(isAnonymousAccessible)
+            	response.setHeader("Cache-Control", "public, max-age=" + fileExpirationSeconds);
+            else response.setHeader("Cache-Control", "private, max-age=" + fileExpirationSeconds);
         }
 
         // determine lastModified
@@ -2778,6 +2823,10 @@ public class WGPDispatcher extends HttpServlet {
     }
 
     public PostProcessResult postProcessDesignResource(WGCSSJSModule lib, javax.servlet.http.HttpServletRequest request, javax.servlet.http.HttpServletResponse response) throws WGException, InstantiationException, IllegalAccessException {
+    	return postProcessDesignResource(lib, request, response, true);
+    }
+
+    public PostProcessResult postProcessDesignResource(WGCSSJSModule lib, javax.servlet.http.HttpServletRequest request, javax.servlet.http.HttpServletResponse response, Boolean compress) throws WGException, InstantiationException, IllegalAccessException {
         
         @SuppressWarnings("unchecked")
         Class<? extends PostProcessor> postProcessorClass = (Class<? extends PostProcessor>) lib.getExtensionData(DesignFileDocument.EXTDATA_POSTPROCESSOR);
@@ -2788,6 +2837,7 @@ public class WGPDispatcher extends HttpServlet {
         PostProcessData data = new PostProcessData();
         data.setDocument(lib);
         data.setCacheQualifier(null);
+        data.setCompress(compress);
         
         // Create processor and give it the opportunity to fill caching data
         PostProcessor processor = postProcessorClass.newInstance();
@@ -2803,18 +2853,26 @@ public class WGPDispatcher extends HttpServlet {
         
         if (cache != null) {
             PostProcessResult result = cache.getResource(wga, data);
-            if (result != null) {
+            if (result != null) 
                 return result;
-            }
+
+        	synchronized (cache) {
+        		// postProcess and update cache.
+        		// read again because another thread may have filled the cache while I am blocked
+	            result = cache.getResource(wga, data);
+	            if (result != null) 
+	                return result;
+            
+                // Process and optionally cache the result
+                result = processor.postProcess(wga, data, lib.getCode());
+                if (data.isCacheable()) {
+                    cache.putResource(data, result); 
+                    wga.getLog().info("Added to PostProcessResource Cache: " + lib.getDesignReference().toString() + ": " + result.getCode().length() + " Bytes");
+                }
+				return result;
+			}
         }
-        
-        // Process and cache optionally
-        PostProcessResult result = processor.postProcess(wga, data, lib.getCode());
-        if (cache != null) {
-            cache.putResource(data, result);
-        }
-        
-        return result;
+        else return processor.postProcess(wga, data, lib.getCode());
     }
 
     /**
@@ -2834,7 +2892,7 @@ public class WGPDispatcher extends HttpServlet {
         _tmlDebugger = new WebTMLDebugger(this);
 
         this.setServePages(true);
-        _log.debug("WebGate Anywhere Publisher initialized");
+        _log.debug("OpenWGA Publisher initialized");
 
     }
 
@@ -2968,7 +3026,7 @@ public class WGPDispatcher extends HttpServlet {
                 content = getContentByAnyKey(contentKey, database, request);
                 if (content == null) {
                     if (request.getQueryString() != null && request.getQueryString().toLowerCase().indexOf("login") != -1) {
-                        sendRedirect(response, getLoginURL(request, database, path.getCompleteURL()));
+                        sendRedirect(request, response, getLoginURL(request, database, path.getCompleteURL()));
                     }
                     else {
                         throw new HttpErrorException(404, "No content of name/id " + contentKey, path.getDatabaseKey());
@@ -3122,7 +3180,9 @@ public class WGPDispatcher extends HttpServlet {
         
         // Virtual link is unresolveable (maybe because read-protected)
         if (target == null) {
-            throw new WGUnresolveableVirtualLinkException("Target document does not exist or is not readable");
+            //throw new WGUnresolveableVirtualLinkException("Target document does not exist or is not readable");
+        	wga.getLog().warn("Virtual link in " + content.getContentKey().toString() + ": Target " + content.getVirtualLink() + " does not exist or is not readable");
+        	return null;
         }
         
         // If the target is again a virtual document descend into its resolving
@@ -3192,6 +3252,10 @@ public class WGPDispatcher extends HttpServlet {
     public synchronized String addTemporaryDownload(HttpSession session, TemporaryFile file) {
         String name = UIDGenerator.generateUID();
         TemporaryDownloadsMap temporaryDownloads = (TemporaryDownloadsMap) session.getAttribute(SESSION_TEMPORARYDOWNLOADS);
+        if(temporaryDownloads==null){
+        	temporaryDownloads = new WGPDispatcher.TemporaryDownloadsMap();
+        	session.setAttribute(SESSION_TEMPORARYDOWNLOADS, temporaryDownloads);
+        }
         TemporaryDownload tempDownload = new TemporaryDownload(name, file);
         temporaryDownloads.put(name, tempDownload);
         return name;
@@ -3214,20 +3278,20 @@ public class WGPDispatcher extends HttpServlet {
                 Iterator<String> browserETags = WGUtils.deserializeCollection(browserETagsStr, ",", true, new Character('"')).iterator();
                 while (browserETags.hasNext()) {
                     String rawETag = (String) browserETags.next();
-                        if (rawETag.trim().equals("*")) {
-                            return true;
-                        }
-                        
-                        int startETag = rawETag.indexOf('"');
-                        int endETag = rawETag.lastIndexOf('"');
-                        if (startETag != -1 && endETag != -1) {
-                            String eTag = rawETag.substring(startETag + 1, endETag);
-                    if (eTag.equals(currentETag)) {
+                    if (rawETag.trim().equals("*")) {
                         return true;
                     }
+                    
+                    int startETag = rawETag.indexOf('"');
+                    int endETag = rawETag.lastIndexOf('"');
+                    if (startETag != -1 && endETag != -1 && startETag!=endETag) {
+                        String eTag = rawETag.substring(startETag + 1, endETag);
+	                    if (eTag.equals(currentETag)) {
+	                        return true;
+	                    }
+	                }
                 }
             }
-                }
     
             // Handle If-Modified-Since
             if (lastModified != null) {
@@ -3277,11 +3341,14 @@ public class WGPDispatcher extends HttpServlet {
             
             HttpSession session = request.getSession();
             
+            // Parse request
             WGPRequestPath path = (WGPRequestPath) request.getAttribute(WGACore.ATTRIB_REQUESTPATH);
             if (path == null) {
-                return false;
+            	path = WGPRequestPath.parseRequest(this, request, response);
+                if(path==null)
+                	return false;
+                request.setAttribute(WGACore.ATTRIB_REQUESTPATH, path);
             }
-            
             
             // Again fetch the wrapped request and response created by the filter, as we are outside it here and we have again the raw request/response object
             HttpServletRequest wrappedRequest = (HttpServletRequest) request.getAttribute(WGAFilter.REQATTRIB_REQUEST_WRAPPER);
@@ -3292,7 +3359,8 @@ public class WGPDispatcher extends HttpServlet {
             if (wrappedResponse != null) {
                 response = wrappedResponse;
             }
-    
+            
+
             // Determine tml design for this request
             WGA wga = WGA.get(request, response, getCore());
             WGDatabase errorDatabase = getCore().getContentdbs().get(error.getCausingDatabase());
@@ -3305,14 +3373,14 @@ public class WGPDispatcher extends HttpServlet {
                 return false;
             }
     
-            WGContent content = errorDatabase.getDummyContent(path.getRequestLanguage());
+            WGContent content = errorDatabase.getDummyContent(path==null ? null : path.getRequestLanguage());
     
             // Personalize
             TMLUserProfile tmlUserProfile = null;
             WGTransientPortletRegistry portletRegistry = null;
             TMLPortletStateStorage portletStateStorage = null;
             try {
-                tmlUserProfile = getCore().getPersManager().fetchUserProfile(request, response, errorDatabase);
+                tmlUserProfile = getCore().getPersManager().prepareUserProfileForRequest(request, response, content, errorDatabase, null, false);            
             }
             catch (Exception e) {
                 _log.error("Unable to personalize WebTML request " + path.getCompleteURL(), e);
@@ -3326,8 +3394,6 @@ public class WGPDispatcher extends HttpServlet {
             request.setAttribute(WGACore.ATTRIB_MIMETYPE, "text/html");
             request.setAttribute(WGACore.ATTRIB_MEDIAKEY, "html");
             request.setAttribute(WGACore.ATTRIB_REQUESTTYPE, REQUESTTYPE_TML);
-            request.setAttribute(WGACore.ATTRIB_TRANSIENTPORTLETREGISTRY, portletRegistry);
-            request.setAttribute(WGACore.ATTRIB_PORTLETSTATESTORAGE, portletStateStorage);
             request.setAttribute(WGACore.ATTRIB_URI_HASH, WGUtils.createMD5HEX(request.getRequestURI().getBytes("UTF-8")));
             request.setAttribute(WGACore.ATTRIB_FORMDATA, null);
             request.setAttribute(WGACore.ATTRIB_OUTER_DESIGN, tmlLib.getName());

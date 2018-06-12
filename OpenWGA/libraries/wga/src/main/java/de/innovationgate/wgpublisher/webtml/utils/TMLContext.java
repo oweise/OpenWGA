@@ -93,7 +93,9 @@ import de.innovationgate.webgate.api.WGDocument;
 import de.innovationgate.webgate.api.WGException;
 import de.innovationgate.webgate.api.WGExpressionException;
 import de.innovationgate.webgate.api.WGFactory;
+import de.innovationgate.webgate.api.WGFileAnnotations;
 import de.innovationgate.webgate.api.WGFileContainer;
+import de.innovationgate.webgate.api.WGFileDerivateMetaData;
 import de.innovationgate.webgate.api.WGHierarchicalDatabase;
 import de.innovationgate.webgate.api.WGIllegalArgumentException;
 import de.innovationgate.webgate.api.WGIllegalDataException;
@@ -127,6 +129,7 @@ import de.innovationgate.wga.server.api.UnavailableResourceException;
 import de.innovationgate.wga.server.api.WGA;
 import de.innovationgate.wga.server.api.tml.Context;
 import de.innovationgate.wga.server.api.tml.TMLPage;
+import de.innovationgate.wgpublisher.ClientHints;
 import de.innovationgate.wgpublisher.DBLoginInfo;
 import de.innovationgate.wgpublisher.PersonalisationManager;
 import de.innovationgate.wgpublisher.RenderServletRequest;
@@ -142,6 +145,7 @@ import de.innovationgate.wgpublisher.expressions.ExpressionEngine;
 import de.innovationgate.wgpublisher.expressions.ExpressionEngineFactory;
 import de.innovationgate.wgpublisher.expressions.ExpressionResult;
 import de.innovationgate.wgpublisher.expressions.tmlscript.RhinoExpressionEngine;
+import de.innovationgate.wgpublisher.files.derivates.FileDerivateManager;
 import de.innovationgate.wgpublisher.files.derivates.FileDerivateManager.DerivateQuery;
 import de.innovationgate.wgpublisher.files.derivates.WGInvalidDerivateQueryException;
 import de.innovationgate.wgpublisher.filter.WGAFilter;
@@ -514,6 +518,8 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 		
         if (getDesignContext().getVersionCompliance().isAtLeast(7,2)) {
             Object value = getDesignContext().retrieveLocalVar(name);
+            if(value instanceof ListVarContainer)
+            	return ((ListVarContainer) value).getList();
             if (!(value instanceof NullPlaceHolder)) {
                 return value;
             }
@@ -521,7 +527,10 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 		
 		Map vars = _environment.getPageVars();
 		if (vars.containsKey(name)) {
-			return vars.get(name);
+			Object value = vars.get(name);
+            if(value instanceof ListVarContainer)
+            	return ((ListVarContainer) value).getList();
+            else return value;
 		}
 		return null;
 	}
@@ -539,7 +548,10 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 		if (sessionVars.containsKey(name)) {
 			TransientObjectWrapper<Object> wrapper = sessionVars.get(name);
 			if (wrapper != null) {
-			    return wrapper.get();
+				Object value = wrapper.get();
+				if(value instanceof ListVarContainer)
+					return ((ListVarContainer) value).getList();
+			    return value;
 			}
 		}
 		return null;
@@ -1735,7 +1747,7 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 	    }
 	    
 	    else if (name.equalsIgnoreCase("username")) {
-	        DBLoginInfo loginInfo = getwgacore().getSessionLogins(gethttpsession()).get(domainName);
+	        DBLoginInfo loginInfo = WGACore.getSessionLogins(gethttpsession()).get(domainName);
 	        if (loginInfo != null) {
 	            return loginInfo.getUserName();
 	        }
@@ -2012,11 +2024,10 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
      */
 	@Override
     public Object meta(String name) throws WGAPIException {
-
 		return this.meta("content", name);
 	}
 
-	private Object getContentMetaData(String name) throws WGAPIException {
+	private Object getContentMetaData(String name) throws WGException {
 
 		WGContent content = this.content();
 		if (content == null) {
@@ -2037,13 +2048,13 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 		else if (name.equals("pagecreated")) {
             return content.getStructEntry().getCreated();
         }
+		else if (name.equals("url")) {
+			return contenturl();
+		}
         else if (name.equals("titlepath")) {
-            if (content.getStructEntry() != null) {
-            return content.getStructEntry().getTitlePath();
-        }
-            else {
-                return "";
-            }
+            if (content.getStructEntry() != null)
+	            return content.getStructEntry().getTitlePath();
+            else return "";
         }
         else if (name.equals("pagetitle")) {
             return content.getStructEntry().getTitle();
@@ -2052,20 +2063,23 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 			return content.getUniqueName();
 		}
 		else if (name.equals("pageuniquename") || name.equals("pagename") || name.equals("pagedocname")) {
-		    if (content.getStructEntry() != null) {
-            return content.getStructEntry().getUniqueName();
-        }
-		    else {
-		        return null;
-		    }
+		    if (content.getStructEntry() != null)
+		    	return content.getStructEntry().getUniqueName();
+		    else return null;
         }
 		else if (name.equals("position")) {
 		    if (content.getStructEntry() != null) {
-			return content.getStructEntry().getPosition();
-		}
+				return content.getStructEntry().getPosition();
+			}
 		    else {
 		        return 0;
 		    }
+		}
+		else if (name.equals("pagesequence")) {
+			if (content.getStructEntry() != null) {
+				return content.getStructEntry().getPageSequence();
+			}
+			else return 0;
 		}
 		else if (name.equals("key")) {
 			return content.getContentKey(true).toString();
@@ -2124,8 +2138,8 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 		}
         else if (name.equals("contenttypetitle")) {
             if (content.hasCompleteRelationships()) {
-            return content.getStructEntry().getContentType().getNameForLanguage(getpreferredlanguage());
-        }
+	            return content.getStructEntry().getContentType().getNameForLanguage(getpreferredlanguage());
+	        }
             else {
                 return "";
             }
@@ -2410,9 +2424,35 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 	}
 
 	/* (non-Javadoc)
+     * @see de.innovationgate.wgpublisher.webtml.utils.Context#taginfo(java.lang.String)
+     */
+	@Override
+    public TagInfo tag(String tagId) throws WGAPIException {
+	    BaseTagStatus tag = _designContext.getTag();
+	    
+		if (tag == null)
+			getlog().error("taginfo: no TML environment");
+
+		if (tag!=null && tagId != null) {
+			tag = tag.getTagStatusById(tagId);
+			if (tag == null) {
+				String msg = "taginfo: Could not find tag with id = " + tagId;
+				getlog().error(msg);
+				this.setLastError(msg);
+			}
+		}
+		return  new TagInfo(tag);
+	}
+	
+	public TagInfo tag() throws WGAPIException {
+		return tag(null);
+	}
+	
+	/* (non-Javadoc)
      * @see de.innovationgate.wgpublisher.webtml.utils.Context#taginfo(java.lang.String, java.lang.String)
      */
 	@Override
+	@Deprecated
     public Object taginfo(String tagId, String name) throws WGAPIException {
 		
 	    BaseTagStatus tag = _designContext.getTag();
@@ -2737,8 +2777,8 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 	@Override
     public boolean istrue(String varname) throws WGAPIException {
 
-		Object value = this.item(varname);
-
+		Object value = varname.equals(varname.toUpperCase()) ? this.meta(varname) : this.item(varname);
+		
 		// Enhanced "true", using JavaScript rules to determine true/false.
 		if (isEnhancedItemExpressions()) {
 		    
@@ -3449,6 +3489,11 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
     }
     
     @CodeCompletion
+    public Date now() {
+    	return createdate();
+    }
+    
+    @CodeCompletion
     public Date createdate(boolean includeMillis) {
         try {
             return WGA.get(this).createDate(includeMillis);
@@ -3974,6 +4019,8 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
                 }
             }
             ref = ref.substring(2);
+            if(ref.equals(""))
+            	return startPath;
         }
         
         // Process path parts;
@@ -4082,18 +4129,27 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
         return fileurl(null, null, fileName);
     }
     
-    public String filedataurl(String containerName, String fileName) throws WGAPIException {
-        return filedataurl(containerName, fileName, null);
-    }
-    
     public String filedataurl(String fileName) throws WGAPIException {
-        return filedataurl(null, fileName, null);
+    	return filedataurl(null, null, fileName, null, null);
+    }
+
+    public String filedataurl(String containerName, String fileName) throws WGAPIException {
+        return filedataurl(null, containerName, fileName, null, null);
     }
     
+    @Deprecated
     public String filedataurl(String containerName, String fileName, String contentType) throws WGAPIException {
         return filedataurl(null, containerName, fileName, contentType);
     }
-    
+    @Deprecated
+    public String filedataurl(String dbKey, String containerName, String fileName, String contentType) throws WGAPIException {
+    	return filedataurl(dbKey, containerName, fileName, contentType, null);
+    }
+
+    public String filedataurl(String fileName, Map<String,String> config) throws WGAPIException {
+    	return filedataurl(config.get("designdb"), config.get("doc"), fileName, config.get("mimetype"), config.get("derivate"));
+    }
+
     /**
      * creates a RFC2397 data url from the given file
      * @param dbKey
@@ -4103,7 +4159,7 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
      * @return The url
      * @throws WGAPIException 
      */
-    public String filedataurl(String dbKey, String containerName, String fileName, String contentType) throws WGAPIException {
+    public String filedataurl(String dbKey, String containerName, String fileName, String contentType, String derivate) throws WGAPIException {
         
         // retrieve input stream
         InputStream fileIn = null;
@@ -4115,6 +4171,17 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 
                 fileIn = content().getFileData(fileName);
                 fileSize = content().getFileSize(fileName);
+
+                if(derivate!=null){
+                	// search for derivate:
+                	FileDerivateManager fdm = getwgacore().getFileDerivateManager();
+	            	DerivateQuery derivateQuery = fdm.parseDerivateQuery(derivate);
+	                WGFileAnnotations md = fdm.queryDerivate(content(), fileName, derivateQuery, new ClientHints(), true);
+	                if(md!=null && md instanceof WGFileDerivateMetaData){
+	                	fileIn = content().getFileDerivateData(((WGFileDerivateMetaData)md).getId());
+	                	fileSize = (int)md.getSize();
+	                }
+                }
                 if (fileIn == null) {
                     addwarning("File '" + fileName + "' is not attached to content '" + content().getContentKey().toString() + "'.");
                     return null;
@@ -4141,7 +4208,7 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
                 	
                 	if (container == null) {
                 		// third try - use container name as key and try to find a content document
-                		container = WGPDispatcher.getContentByAnyKey(containerRef.getResourceName(), db(), new WebTMLLanguageChooser(db(), this), isbrowserinterface());
+                		container = WGPDispatcher.getContentByAnyKey(containerName, db(), new WebTMLLanguageChooser(db(), this), isbrowserinterface());
                 	}
                 }
                     
@@ -4150,8 +4217,21 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
                     return null;                    
                 }
                 
-                fileIn = container.getFileData(fileName);
-                fileSize = container.getFileSize(fileName);
+                if(derivate!=null && container instanceof WGContent){
+                	// search for derivate:
+                	FileDerivateManager fdm = getwgacore().getFileDerivateManager();
+	            	DerivateQuery derivateQuery = fdm.parseDerivateQuery(derivate);
+	                WGFileAnnotations md = fdm.queryDerivate(container, fileName, derivateQuery, new ClientHints(), true);
+	                if(md!=null && md instanceof WGFileDerivateMetaData){
+	                	fileIn = container.getFileDerivateData(((WGFileDerivateMetaData)md).getId());
+	                	fileSize = (int)md.getSize();
+	                }
+                }
+                if (fileIn == null){
+	                fileIn = container.getFileData(fileName);
+	                fileSize = container.getFileSize(fileName);
+                }
+                
                 if (fileIn == null) {
                     addwarning("File '" + fileName + "' not found in filecontainer '" + containerName + "'.");
                     return null;
@@ -4812,7 +4892,12 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
     }
 
     public static ProcessContextRegistration fetchProcessContextRegistration(HttpSession session) {
-        return (ProcessContextRegistration) session.getAttribute(SESSIONATTRIB_PROCESSCONTEXTS);
+    	ProcessContextRegistration reg = (ProcessContextRegistration) session.getAttribute(SESSIONATTRIB_PROCESSCONTEXTS);
+    	if(reg==null){
+    		reg = new ProcessContextRegistration();
+    		session.setAttribute(TMLContext.SESSIONATTRIB_PROCESSCONTEXTS, reg);
+    	}
+        return reg;
     }
 
     public static Map<String, TMLAction> fetchActionRegistration(HttpSession session) {
@@ -4857,7 +4942,12 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
 
     @SuppressWarnings("unchecked")
     public static Map<String,TMLForm> fetchPersistentForms(HttpSession session) {
-        return (Map<String,TMLForm>) session.getAttribute(WGACore.ATTRIB_TMLFORM);
+    	Map<String,TMLForm> forms = (Map<String,TMLForm>) session.getAttribute(WGACore.ATTRIB_TMLFORM);
+        if (forms == null) {
+            forms = new HashMap<String,TMLForm>();
+            session.setAttribute(WGACore.ATTRIB_TMLFORM, forms);
+        }
+        return forms;
     }
 
     public WGUserAccess getoriginaluserdata() {
@@ -5319,7 +5409,7 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
     
     public TMLContext toIsolatedVersion() {
         if (!(_environment instanceof IsolatedTMLContextEnvironment)) {
-            TMLContext isolatedContext =  new TMLContext(getcontent(), getwgacore(), getprofile(), gettmlform(), getrequest(), getresponse(), gethttpsession());
+        	TMLContext isolatedContext =  new TMLContext(this.document, getwgacore(), getprofile(), gettmlform(), getrequest(), getresponse(), gethttpsession());
             isolatedContext.isolate();
             return isolatedContext;
         }
@@ -5331,7 +5421,7 @@ public class TMLContext implements TMLObject, de.innovationgate.wga.server.api.t
     private TMLContext toUnlockedVersion() {
         if (_environment instanceof IsolatedTMLContextEnvironment) {
             TMLContextEnvironment unlockedEnv = ((IsolatedTMLContextEnvironment) _environment).getParentEnvironment();
-            return new TMLContext(getcontent(), getwgacore(), getprofile(), unlockedEnv.getForm(), unlockedEnv.getRequest(), unlockedEnv.getResponse(), unlockedEnv.getSession());
+            return new TMLContext(this.document, getwgacore(), getprofile(), unlockedEnv.getForm(), unlockedEnv.getRequest(), unlockedEnv.getResponse(), unlockedEnv.getSession());
         }
         else {
             return this;

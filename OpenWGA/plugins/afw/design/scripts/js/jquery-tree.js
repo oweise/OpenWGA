@@ -111,17 +111,36 @@
 
 		var link = $("<a/>", {
 			href: data.href
-		}).on("click", selectEntry)
+		}).on({
+			"click": selectEntry,
+			"dblclick": function(){
+				var node = $(this)
+				node.trigger("editnode", {
+					node: node,
+					id: node.data("id"),
+					href: node.data("href"),
+					level: node.data("level"),
+					title: node.data("title"),
+					context: node.data("context"),
+					haschildren: node.data("haschildren")
+				})
+			}
+		})
 		
 		link.append(icon)
 		link.attr("draggable", true);
+		
+		var symbol = $("<div/>", {
+			"class": "symbol " + (data.symbolclass||"")
+		})
+		link.append(symbol);			
 		
 		var link_text = $("<div/>", {
 			"class": "link-text",
 			html: data.html || data.title
 		})
 		link.append(link_text);
-		
+				
 		entry.append(link)
 
 		if(data.children)
@@ -165,6 +184,8 @@
 	}
 
 	function selectNode(node, trigger_selected){
+		if(!node.length)
+			return;		// node not found
 		node.parents(".wga_tree").first().find(".node").removeClass("selected");
 		node.addClass("selected")
 		node.parents(".node").removeClass("collapsed");
@@ -185,6 +206,8 @@
 	}
 
 	function scrollIntoView(element) {
+		if(!element.length)
+			return;	// element not found
 		var container = element.offsetParent();
 		
 		var containerScrollTop = container.scrollTop();
@@ -220,21 +243,28 @@
 					selectpath(path, expandedNode)	// try again
 				// else not found.
 			})
-			return;
 		}
-				
-		var node = $(".node[data-id='"+id+"']", node);
-		if(!node.length){
-			//console.log("not found", id);
-			return;		// not found
-		}	
-		
-		parts.shift()
-		if(parts.length==0){
-			// last path element: just select it:
-			selectNode(node)
+		else{
+			var id_node = $(".node[data-id='"+id+"']", node);
+			if(!id_node.length){
+				// not found: try reloading
+				node.find("ul").remove();
+				expandNode(node, function(expandedNode){
+					// we should find id now. Else give up.
+					var node = $(".node[data-id='"+id+"']", expandedNode);
+					if(node.length)
+						selectpath(path, expandedNode)	// try again
+				})
+			}
+			else{			
+				parts.shift()
+				if(parts.length==0){
+					// last path element: just select it:
+					selectNode(id_node)
+				}
+				else selectpath(parts.join("/"), id_node)
+			}
 		}
-		else selectpath(parts.join("/"), node)
 	}
 
 	function reload(config){
@@ -261,7 +291,7 @@
 	}
 
 	function handleDragStart(e){
-		console.log("handleDragStart", this, e.dataTransfer, e);
+		//console.log("handleDragStart", this, e.dataTransfer, e);
 		if(e.originalEvent.type=="mousedown")
 			e.preventDefault();
 	}
@@ -288,24 +318,40 @@
 
 	function findNode(root, node_or_id){		
 		if(typeof(node_or_id)=="string")
-			return root.find("[data-id=" + node_or_id + "]")
+			return root.find("[data-id='" + node_or_id + "']")
 		else return $(node_or_id);
 	}
 
 	function updateNode(node, data){
-		node.find(".entry").attr("class", "clearfix entry " + (data.cssclass||""))
+		if(typeof(data.cssclass)=="string")
+			$("> .entry", node).attr("class", "clearfix entry " + data.cssclass)
+		if(typeof(data.symbolclass)=="string")
+			$("> .entry .symbol", node).attr("class", "symbol " + data.symbolclass)
 		if(data.html||data.title)
-			node.find(".link-text").html(data.html||data.title)
+			$("> .entry .link-text", node).html(data.html||data.title)
+		if(data.iconurl)
+			$("> .entry .icon", node).css("background-image", "url('"+data.iconurl+"')")
+		if(data.title)
+			node.data("title", data.title)
+		if(data.href){
+			node.data("href", data.href)
+			$("> .entry .a", node).attr("href", data.href)
+		}
+		if(data.context)
+			node.data("context", data.context)
 	}
 	
-	function removeNode(node){
+	function removeNode(node, select_parent){
 		var parent = node.parents('.node').first();
 		node.remove();
 		var children = parent.find(".node")
 		if(!children.length){
 			parent.attr("data-haschildren", false)
+			parent.find("ul").remove();
 			collapseNode(parent);
 		}
+		if(select_parent)
+			selectNode(parent, true);
 	}
 
 	var exports={
@@ -331,8 +377,8 @@
 		updatenode: function(node_or_id, data){
 			return updateNode(findNode(this, node_or_id), data)
 		},
-		removenode: function(node_or_id, data){
-			return removeNode(findNode(this, node_or_id))
+		removenode: function(node_or_id, select_parent){
+			return removeNode(findNode(this, node_or_id), select_parent)
 		},
 		
 		reload: reload
@@ -352,7 +398,7 @@
 					return f.apply($this, args);
 				}
 				catch(e){
-					throw("jquery plugin wga_tree: method " + config + " not found: " + e)
+					throw("jquery plugin wga_tree: method " + config + " failed: " + e)
 					return null;
 				}
 			}
@@ -394,7 +440,7 @@
 						drag_el.addClass("dragging");
 						mayDrop=true;
 						
-						//e.originalEvent.dataTransfer.effectAllowed = "link"
+						//e.originalEvent.dataTransfer.effectAllowed = "copyLink"
 						e.originalEvent.dataTransfer.setDragImage(drag_img, 0, 0);
 						e.originalEvent.dataTransfer.setData("wga/link", JSON.stringify({
 							title: drag_el.data("title"),
@@ -412,6 +458,14 @@
 						
 						var el = $(e.target).parents("li").first()
 						var parent = el.parents("li").first()
+						
+						/*
+						console.log("el", el)
+						console.log("parent", parent)						
+						console.log("is-children", el.parents("li").index(drag_el))
+						*/
+						if(el.parents("li").index(drag_el)>=0)
+							return;		// don't drag to children
 						
 						if(el.hasClass("placeholder") || el.data("id")==drag_el_id)
 							return;
@@ -487,12 +541,12 @@
 						expand_timer=null;
 					},
 					dragend: function(e){
-						console.log("dragend");
+						//console.log("dragend");
 						if(!drag_el)
 							return;
 						drag_el.removeClass("dragging");
 						var el = $(e.target).parents("li").first()
-						console.log($(e.target), el);
+						//console.log($(e.target), el);
 						el.removeClass("drop-add-children");
 						placeholder.remove();
 						drag_el=null;
@@ -512,6 +566,9 @@
 						
 						var el = $(e.target).parents("li").first()
 						dragged_el.removeClass("dragging");
+
+						if(el.parents("li").index(drag_el)>=0)
+							return;		// don't drag to children
 
 						if(el.data("id")!=dragged_el.data("id")){
 							
@@ -537,7 +594,7 @@
 										id: dragged_el.data("id"),
 										href: dragged_el.data("href"),
 										parent_id: el.data("id"),
-										index: el.find("li:not(.placeholder)").index(dragged_el) 
+										index: el.find("> ul > li:not(.placeholder)").index(dragged_el) 
 									})
 									
 								});
@@ -545,6 +602,12 @@
 							else {
 								dragged_el.insertAfter(placeholder);
 								recalcLevels(dragged_el)
+								
+								var index;
+								var new_parent = dragged_el.parentsUntil(".wga_tree", "li").first();
+								if(new_parent.length)
+									index = new_parent.find("> ul > li:not(.placeholder)").index(dragged_el)
+								else index = dragged_el.parents(".wga_tree").first().find("> ul > li:not(.placeholder)").index(dragged_el)
 
 								if(parent.find("li").length==0)
 									parent.attr("data-haschildren", "false");
@@ -552,7 +615,7 @@
 										id: dragged_el.data("id"),
 										href: dragged_el.data("href"),
 										parent_id: dragged_el.parents("li").first().data("id"),
-										index: dragged_el.parents("li").first().find("li:not(.placeholder)").index(dragged_el)
+										index: index
 								})
 							}
 

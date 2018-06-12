@@ -15,12 +15,15 @@
  ******************************************************************************/
 package de.innovationgate.utils;
 
+import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
@@ -86,7 +89,7 @@ public class URLBuilder implements Cloneable {
 	protected String _host = "";
 	protected String _path = "";
 	protected String _query = "";
-	protected HashMap<String,String> _parameters = new HashMap<String,String>();
+	protected HashMap<String,Object> _parameters = new HashMap<String,Object>();
     protected String _encoding = "UTF-8";
     protected String _pathUndecoded = null;
     protected String _fragment = "";
@@ -174,7 +177,8 @@ public class URLBuilder implements Cloneable {
             }
              
             if (query != null) {
-                _query = decode != null ? WGUtils.decodeURI(query, decode) : query;
+                _query = query;
+                // #00005149: WGA.urlBuilder should not decode url querystring when processing URLs
                 addQueryString(getQuery(), decode);
             }
             
@@ -230,33 +234,47 @@ public class URLBuilder implements Cloneable {
      */
     public URLBuilder addQueryString(String queryString, String decode) {
         StringTokenizer tokens = new StringTokenizer(queryString);
-        boolean firstToken = true;
         String token;
+        HashMap<String,Object> params = new HashMap<String,Object>(); 
         while (tokens.hasMoreTokens()) {
             token = tokens.nextToken("&");
 
             int equalPos = token.indexOf("=");
             if (equalPos == -1) {
-                _parameters.put(token, "");
-            }
-            else {
-                String paramName = token.substring(0, equalPos);
-                String paramValue = token.substring(equalPos + 1);
-                
-                if (decode != null) {
-                    try {
-                        paramName = decode != null ? WGUtils.decodeURI(paramName, decode) : paramName;
-                        paramValue = decode != null ? WGUtils.decodeURI(paramValue, decode) : paramValue;
-                    }
-                    catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-                
-                _parameters.put(paramName, paramValue);
+                params.put(token, null);
+                continue;
             }
             
+            String paramName = token.substring(0, equalPos);
+            String paramValue = token.substring(equalPos + 1);
+            
+            if (decode != null) {
+                try {
+                    paramName = decode != null ? WGUtils.decodeURI(paramName, decode) : paramName;
+                    paramValue = decode != null ? WGUtils.decodeURI(paramValue, decode) : paramValue;
+                }
+                catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            
+            Object currentValue = params.get(paramName);
+            if(currentValue!=null){
+            	List<Object> values = new ArrayList<Object>();
+            	if(currentValue instanceof List){
+            		values.addAll((List)currentValue);
+            	}
+            	else{
+            		values.add(currentValue);
+            	}
+        		values.add(paramValue);
+        		params.put(paramName, values);
+            }
+            else params.put(paramName, paramValue);
+            
         }
+        
+        _parameters.putAll(params);
         
         return this;
     }
@@ -298,6 +316,11 @@ public class URLBuilder implements Cloneable {
 	public URLBuilder setPath(String file) {
         _path = file;
 	    return this;
+	}
+	
+	public URLBuilder setPath(String path, boolean decode) throws UnsupportedEncodingException, MalformedURLException {
+		_path = (decode && _encoding!=null) ?  WGUtils.decodeURI(path, _encoding) : path;
+		return this;
 	}
 	
 	/**
@@ -414,34 +437,51 @@ public class URLBuilder implements Cloneable {
 	
 	private String rebuildQuery() {
 		
-	    Map<String,String> rebuildParameters = getRebuildParameters();
+	    Map<String,Object> rebuildParameters = getRebuildParameters();
 		Iterator<String> paramKeys = rebuildParameters.keySet().iterator();
 		String paramSeparator = "&";
 		StringBuffer paramString = new StringBuffer();
 		String key;
-		String value;
+		Object value;	// may be a List
 		while (paramKeys.hasNext()) {
 			key = paramKeys.next().toString();
-			value = (String) rebuildParameters.get(key);
+			value = rebuildParameters.get(key);
 			
-			if (paramString.length() > 0) {
-				paramString.append(paramSeparator);
+			List<Object> values = new ArrayList<Object>();
+			if(value instanceof List)
+				values.addAll((List)value);	// add all values
+			else values.add(value);			// add single value
+
+			try{
+				if (_encoding != null)
+					key = URIUtil.encodeWithinQuery(key, _encoding);				
+	
+				for(Object o: values){
+					if (paramString.length() > 0) {
+						paramString.append(paramSeparator);
+					}
+					paramString.append(key);
+					if(o==null)
+						continue;
+					
+					// special handling of INT values:
+					if(o instanceof Double){
+						Double _o = (Double)o;
+						if(_o == _o.intValue()){	// is Integer?
+							o = _o.intValue();
+						}
+					}
+					String v = o.toString();
+					if (_encoding != null)
+	                    v = URIUtil.encodeWithinQuery(v, _encoding);
+					if (v != null && !v.trim().equals("")) {
+						paramString.append("=");
+						paramString.append(v);
+					}
+				}
 			}
-			
-			if (_encoding != null) {
-			    try {
-                    key = URIUtil.encodeWithinQuery(key, _encoding);
-                    value = URIUtil.encodeWithinQuery(value, _encoding);
-                }
-                catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-			}
-			
-			paramString.append(key);
-			if (value != null && !value.trim().equals("")) {
-				paramString.append("=");
-				paramString.append(value);
+			catch(Exception e){
+				throw new RuntimeException(e);
 			}
 			
 		}
@@ -455,19 +495,51 @@ public class URLBuilder implements Cloneable {
 		
 	}
 
-    protected Map<String,String> getRebuildParameters() {
+    protected Map<String,Object> getRebuildParameters() {
         return this._parameters;
     }
 	
 	/**
-     * Returns a URL parameter value
+     * Returns a URL parameter value. If the parameter is a list the first element is returned.
 	 * @param param The parameter name
 	 * @return The parameter value
 	 */
+	@SuppressWarnings("unchecked")
 	public String getParameter(String param) {
-		return (String) _parameters.get(param);
+		if(!_parameters.containsKey(param))
+			return null;
+		Object value = _parameters.get(param);
+		if(value==null)
+			return "";
+		else if(value instanceof List)
+			value = ((List<Object>)value).get(0);
+		return value.toString();
 	}
-    
+
+	/**
+     * Returns a URL parameter value as a List (even if the parameter value is a single value)
+     * If the parameter value does not exit null is returned.
+     * If the parameter value is null an empty List is returned.
+	 * @param param The parameter name
+	 * @return The parameter value
+	 */
+	@SuppressWarnings("unchecked")
+	public List<Object> getParameterValues(String param) {
+		if(!_parameters.containsKey(param))
+			return null;
+		Object value = _parameters.get(param);
+		if(value==null)
+			return new ArrayList<Object>();
+		else if(value instanceof List)
+			return (List<Object>)value;
+		else{
+			List<Object> values = new ArrayList<Object>();
+			values.add(value);
+			return values;
+		}
+	}
+
+	
     /**
      * Tests for existence of a URL parameter
      * @param param The parameter name
@@ -487,15 +559,23 @@ public class URLBuilder implements Cloneable {
     }
 	
 	/**
-     * Createds/modifies a parameter
+     * Create/modify a parameter
 	 * @param param The parameter name
 	 * @param value The parameter value
 	 */
-	public URLBuilder setParameter(String param, String value) {
-		
-		_parameters.put(param, (value == null ? "" : value));
+	public URLBuilder setParameter(String param, Object paramValue) {
+		_parameters.put(param, paramValue);
 		return this;
-		
+	}
+	
+	public URLBuilder setParameter(String param) {
+		_parameters.put(param, null);
+		return this;
+	}
+	
+	public URLBuilder setParameter(Map<String,Object> params) {
+		_parameters.putAll(params);
+		return this;
 	}
 
     /**
@@ -580,7 +660,7 @@ public class URLBuilder implements Cloneable {
     @Override
     protected Object clone() throws CloneNotSupportedException {
         URLBuilder clone = (URLBuilder) super.clone();
-        clone._parameters = new HashMap<String,String>(_parameters);
+        clone._parameters = new HashMap<String,Object>(_parameters);
         return clone;
     }
 

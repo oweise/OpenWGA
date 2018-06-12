@@ -26,7 +26,7 @@
 <%@ page import="de.innovationgate.wgpublisher.webtml.utils.HttpErrorException,de.innovationgate.wgpublisher.jsputils.*" %>
 <%@ page import="de.innovationgate.wgpublisher.*" %>
 <%@ page import="de.innovationgate.wga.server.api.*" %>
-<%@ page language="java" pageEncoding="ISO-8859-1"%>
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
 <%
 ErrorPageManager manager = new ErrorPageManager(pageContext);
 if (manager.isDisplayDefaultErrorPage()) {
@@ -34,12 +34,12 @@ if (manager.isDisplayDefaultErrorPage()) {
 	WGA wga = manager.getWga();
 	JspHelper jspHelper = manager.getJspHelper();
 %>
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<!DOCTYPE html>
 <html>
 	<head>
 		<META name="robots" content="noindex, nofollow">
 		<TITLE><%= wga.encode("html", WGABrand.getName()) %> Error</TITLE>
-		<% jspHelper.writeContentInfo(); %>
+		<%= jspHelper.getContentInfoScript() %>
 		<style>
 			body {
 				width:70%;

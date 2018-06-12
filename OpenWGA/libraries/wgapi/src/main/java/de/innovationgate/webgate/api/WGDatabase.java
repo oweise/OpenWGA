@@ -58,6 +58,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Semaphore;
 
 import javax.activation.DataSource;
+import javax.servlet.http.HttpServletRequest;
 
 import org.apache.commons.collections.SortedBag;
 import org.apache.commons.collections.bag.TreeBag;
@@ -77,7 +78,9 @@ import de.innovationgate.utils.cache.Cache;
 import de.innovationgate.utils.cache.CacheDisposalListener;
 import de.innovationgate.utils.cache.CacheException;
 import de.innovationgate.utils.cache.CacheFactory;
+import de.innovationgate.webgate.api.PageRightsFilter.Right;
 import de.innovationgate.webgate.api.auth.AnonymousAuthSession;
+import de.innovationgate.webgate.api.auth.AnonymousAwareAuthenticationModule;
 import de.innovationgate.webgate.api.auth.AuthSessionWithUserCacheQualifier;
 import de.innovationgate.webgate.api.auth.AuthenticationModule;
 import de.innovationgate.webgate.api.auth.AuthenticationSession;
@@ -1188,7 +1191,7 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
     /**
      * Accesslevel-Name for ACCESSLEVEL_CHIEF_EDITOR
      */
-    public static final String ALNAME_CHIEF_EDITOR = "CHIEF EDITOR";
+    public static final String ALNAME_CHIEF_EDITOR = "CHIEFEDITOR";
 
     /**
      * Accesslevel-Name for ACCESSLEVEL_AUTHOR
@@ -1971,6 +1974,8 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
     
     private List<WGFileAnnotator> fileAnnotators = new CopyOnWriteArrayList<WGFileAnnotator>();
 
+    private WGFileConverter fileConverter = null;
+    
     private WGDesignProvider designProvider = null;
     
     private WGSchemaDefinition schemaDefinition = null;
@@ -2441,7 +2446,7 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
                 @SuppressWarnings("unchecked")
                 Class<? extends PageRightsFilter> filterClass = (Class<? extends PageRightsFilter>) WGFactory.getImplementationLoader().loadClass(filterName);
                 PageRightsFilter filter = filterClass.newInstance();
-                setPageRightsFilter(filter);
+                _pageRightsFilter=filter;
             }
             catch (Exception e) {
                 throw new WGIllegalArgumentException("Exception instantiating page rights filter: " + filterName, e);
@@ -3176,9 +3181,11 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
             throw new ResourceIsLockedException("Unable to remove document. Child objects of the object you want to remove are locked.");
         }
 
-        // Look if we need to clear the query cache
+        // remove all relations pointing to me
+        // + look if we need to clear the query cache
         if (document instanceof WGContent) {
             WGContent content = (WGContent) document;
+            content.removeAllIncomingRelations();
             if (content.getRetrievalStatus().equals(WGContent.STATUS_RELEASE)) {
                 dropQueryCache = true;
             }
@@ -3339,12 +3346,34 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
     }
 
     /**
+     * Returns a struct entry by it's page sequence
+     * 
+     * @param seq				The page sequence number
+     * @return WGStructEntry 	The found struct entry, null if there is none with that key.
+     * @throws WGAPIException
+     */    
+    public WGStructEntry getStructEntryBySequence(long seq) throws WGAPIException{
+    	
+        if (!isSessionOpen()) {
+            throw new WGClosedSessionException();
+        }
+        if(!(getCore() instanceof WGDatabaseCoreFeaturePageSequences))
+        	throw new WGNotSupportedException("Page sequences are not supported for this database");
+        
+        WGDocumentCore struct = ((WGDatabaseCoreFeaturePageSequences)getCore()).getStructEntryBySequence(seq);
+        if (struct != null && !struct.isDeleted()) {
+            return this.getOrCreateStructEntryObject(struct, new WGDocumentObjectFlags());
+        }
+
+        return null;
+
+    }
+    
+    /**
      * Returns a struct entry by it's struct key
      * 
-     * @param structKey
-     *            The struct key to find a struct entry for.
-     * @return WGStructEntry The found struct entry, null if there is none with
-     *         that key.
+     * @param structKey			The struct key to find a struct entry for.
+     * @return WGStructEntry 	The found struct entry, null if there is none with that key.
      * @throws WGAPIException
      */
     public WGStructEntry getStructEntryByKey(Object structKey) throws WGAPIException {
@@ -3931,7 +3960,7 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
      * @throws WGAPIException
      */
     public int openSession(String user, Object credentials) throws WGAPIException {
-        return innerOpenSession(user, credentials, null);
+        return innerOpenSession(user, credentials, null, null);
     }
     
     /**
@@ -3966,11 +3995,14 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
      *         WGDatabase.ACCESSLEVEL_...
      * @throws WGAPIException
      */
+    public int openSession(String user, Object credentials, String filter, HttpServletRequest request) throws WGAPIException {
+        return innerOpenSession(user, credentials, filter, request);
+    }
     public int openSession(String user, Object credentials, String filter) throws WGAPIException {
-        return innerOpenSession(user, credentials, filter);
+        return innerOpenSession(user, credentials, filter, null);
     }
     
-    private int innerOpenSession(String user, Object credentials, String accessFilterUid) throws WGAPIException {
+    private int innerOpenSession(String user, Object credentials, String accessFilterUid, HttpServletRequest request) throws WGAPIException {
 
         if (!isReady()) {
             throw new WGUnavailableException(this, "The database is currently not ready for operation");
@@ -4040,13 +4072,15 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
             authSession = MasterLoginAuthSession.getInstance();
         }
         
+        
         // Anonymous login
         else if (user.equals(WGDatabase.ANONYMOUS_USER)) {
-            authSession = AnonymousAuthSession.getInstance();
+        	if(authModule!=null && authModule instanceof AnonymousAwareAuthenticationModule)
+        		authSession = ((AnonymousAwareAuthenticationModule)authModule).anonymousLogin(request);
+        	else authSession = AnonymousAuthSession.getInstance();
         }
         
         // Regular login against authentication module
-        
         else if (authModule != null) {
             if (certAuthEnabled() && (credentials instanceof X509Certificate)) {
                 authSession = ((CertAuthCapableAuthModule) authModule).login((X509Certificate) credentials);
@@ -4152,7 +4186,7 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
         }
         
         String user = cert.getSubjectDN().toString();
-        return innerOpenSession(user, cert, filter);
+        return innerOpenSession(user, cert, filter, null);
         
     }
 
@@ -5080,34 +5114,41 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
         }
        
         if (hasFeature(FEATURE_FULLCONTENTFEATURES) && entry != null) {
-            WGDocument restrictionDoc= entry.testEditPageHierarchyRights();
-            if (restrictionDoc != null) {
-                String code = (restrictionDoc instanceof WGArea ? WGAuthorisationException.ERRORCODE_OP_DENIED_BY_AREA : WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGE); 
-                throw new WGAuthorisationException("User is not allowed to create content under this struct entry", code, restrictionDoc);
-            }
-        }
 
-        if (hasFeature(FEATURE_FULLCONTENTFEATURES) && entry != null) {
-            WGContentType contentType = entry.getContentType();
+            // Test if draft content allready exists for this language code in
+            // status DRAFT
+        	if (!getSessionContext().isMasterSession() && entry != null && entry.hasContent(language.getName(), WGContent.STATUS_DRAFT)) {
+                throw new WGIllegalStateException("There is already an existing draft copy in language " + language.getTitle() + ".", WGIllegalStateException.ERRORCODE_CONTENT_DRAFT_EXISTS);
+            }
+
+        	// Ask PageRightsFilter first end stop other checks if ALLOWED_SKIP_DEFAULT_CHECKS
+    		Right right = getPageRightsFilter().mayEditContent(entry, getSessionContext().getUserAccess(), language);
+    		if (right == Right.ALLOWED_SKIP_DEFAULT_CHECKS)
+    			return;				// cancel all other tests
+    		else if (right == Right.DENIED)
+    			throw new WGAuthorisationException("PageRightsFilter denies to edit content in this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGERIGHTSFILTER, language);            
+
+        	// does contenttype allow usage:
+        	WGContentType contentType = entry.getContentType();
             if (contentType != null && !contentType.mayCreateContent()) {
                 throw new WGAuthorisationException("User is not allowed to use this content type", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_CONTENTTYPE, contentType);
             }
             else if (contentType == null && getSessionContext().getAccessLevel() != WGDatabase.ACCESSLEVEL_MANAGER) {
                 throw new WGIllegalDataException("The page has no content type");
             }
-        }
 
-        if (hasFeature(FEATURE_FULLCONTENTFEATURES) && !language.mayCreateContent()) {
-            throw new WGAuthorisationException("User is not allowed to create content in this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_LANGUAGE, language);
-        }
-
-        // Test if draft content allready exists for this language code in
-        // status DRAFT
-        if (hasFeature(FEATURE_FULLCONTENTFEATURES)) {
-            if (!getSessionContext().isMasterSession() && entry != null && entry.hasContent(language.getName(), WGContent.STATUS_DRAFT)) {
-                throw new WGIllegalStateException("There is already an existing draft copy in language " + language.getTitle() + ".", WGIllegalStateException.ERRORCODE_CONTENT_DRAFT_EXISTS);
+            if (!language.mayCreateContent()) {
+                throw new WGAuthorisationException("User is not allowed to create content in this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_LANGUAGE, language);
             }
+            
+        	WGDocument restrictionDoc= entry.testEditPageHierarchyRights();
+            if (restrictionDoc != null) {
+                String code = (restrictionDoc instanceof WGArea ? WGAuthorisationException.ERRORCODE_OP_DENIED_BY_AREA : WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGE); 
+                throw new WGAuthorisationException("User is not allowed to create content under this entry", code, restrictionDoc);
+            }        	
+       	
         }
+
     }
 
     private int findNewVersionNumber(WGStructEntry entry, WGLanguage language) throws WGAPIException {
@@ -7422,7 +7463,12 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
             }
         }
 
+        /*
         if (hasFeature(FEATURE_FULLCONTENTFEATURES) && content.getStructEntry().testEditPageHierarchyRights() != null) {
+            throw new WGAuthorisationException("User is not allowed to create content under this struct entry", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGE, content.getStructEntry());
+        }
+        */
+        if (hasFeature(FEATURE_FULLCONTENTFEATURES) && !content.mayEditContent()) {
             throw new WGAuthorisationException("User is not allowed to create content under this struct entry", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGE, content.getStructEntry());
         }
 
@@ -7442,6 +7488,7 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
         if (hasFeature(FEATURE_FULLCONTENTFEATURES)) {
             newContent.setStatus(WGContent.STATUS_DRAFT);
             newContent.setMetaData(WGContent.META_AUTHOR, getSessionContext().getUser());
+            newContent.setValidity(null, null);
         }
 
         // Initialize by workflow engine
@@ -7461,7 +7508,6 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
         // Save and return
         newContent.save();
         return newContent;
-        
 
     }
 
@@ -9310,13 +9356,18 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
      */
     public boolean isAnonymousAccessible() throws WGAPIException {
         // check if file is anonymous accessible
+        
+        WGACL acl = getACL();
+        if(acl==null)
+        	return true; 
+        
         boolean isAnonymousAccessible = false;
         // first check anonymous db access
-        WGACLEntry anonymousEntry = getACL().getEntry(WGDatabase.ANONYMOUS_USER);
+        WGACLEntry anonymousEntry = acl.getEntry(WGDatabase.ANONYMOUS_USER);
         if (anonymousEntry != null && anonymousEntry.getLevel() >= WGDatabase.ACCESSLEVEL_READER) {
             isAnonymousAccessible = true;
         } else if (anonymousEntry == null) {
-            WGACLEntry defaultEntry = getACL().getEntry("*");
+            WGACLEntry defaultEntry = acl.getEntry("*");
             if (defaultEntry != null && defaultEntry.getLevel() >= WGDatabase.ACCESSLEVEL_READER) {
                 isAnonymousAccessible = true;    
             }
@@ -9769,5 +9820,27 @@ private AllDocumentsHierarchy _allDocumentsHierarchy = new AllDocumentsHierarchy
         refresh();
     }
 
+    public void setFileConverter(WGFileConverter conv){
+    	this.fileConverter = conv;
+    }
+    public WGFileConverter getFileConverter(){
+    	return this.fileConverter;
+    }
+
+	public void createPageSequence(WGStructEntry struct, boolean forceCreate) throws WGAPIException, InstantiationException, IllegalAccessException {
+		
+        if (!isSessionOpen()) {
+            throw new WGClosedSessionException();
+        }
+        if(!(getCore() instanceof WGDatabaseCoreFeaturePageSequences))
+        	throw new WGNotSupportedException("Page sequences are not supported for this database");
+
+        if (getSessionContext().getAccessLevel() < ACCESSLEVEL_MANAGER) {
+            throw new WGAuthorisationException("You are not authorized to create page sequences in this database", WGAuthorisationException.ERRORCODE_OP_NEEDS_AUTHOR_LEVEL);
+        }
+
+        ((WGDatabaseCoreFeaturePageSequences)getCore()).createPageSequence(struct.getCore(), forceCreate);
+		struct.save();
+	}
     
 }

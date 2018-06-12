@@ -90,14 +90,19 @@
 		var fields = forminfo.keySet().iterator();
 		while(fields.hasNext()){
 			var fieldinfo = forminfo.get(fields.next());
-			var field = fieldinfo.get("name");
+			var field = fieldinfo.get("name").trim();
 			var label = fieldinfo.get("label");
+			
+			console.log("["+field+"]", tmlform.field(field));
+			
 			var values = tmlform.fieldList(field).iterator();
 			mailbody += "<b>" + label + "</b> (" + field + "):<br>";
 			while(values.hasNext())
 				mailbody += (encode("html", values.next()) +"<br>");
 			mailbody += "<br>";
 		}
+		return;
+		
 		if(tmlform.getfilenames().size()){
 			mailbody += "<hr>"
 			for(let filename in Iterator(tmlform.getfilenames())){
@@ -199,7 +204,7 @@
 				<tml:option name="module-class">section</tml:option>
 			</tml:include>
 			
-			<div class="buttons">
+			<div class="buttons clearfix">
 				<tml:script>
 					var action = CMM.setting('action');
 					if(action=="mail")
@@ -211,7 +216,7 @@
 					else _param2="";
 					_button_action = "form-action-"+action;
 				</tml:script>
-				<tml:button cssclass="btn" clickaction="{_button_action}" param1="{_param1}" param2="{_param2}" param3="{option('title')}" param4="{WGA.scoped('formid')}" ajax="true">
+				<tml:button cssclass="btn btn-default" clickaction="{_button_action}" param1="{_param1}" param2="{_param2}" param3="{option('title')}" param4="{WGA.scoped('formid')}" ajax="true">
 					<tml:[setting] o_name="submit-button-text"/>
 				</tml:button>
 			</div>

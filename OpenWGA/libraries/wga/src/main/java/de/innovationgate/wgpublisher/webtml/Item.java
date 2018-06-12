@@ -50,6 +50,7 @@ import de.innovationgate.utils.FormattingException;
 import de.innovationgate.utils.WGUtils;
 import de.innovationgate.webgate.api.WGAPIException;
 import de.innovationgate.webgate.api.WGException;
+import de.innovationgate.wga.server.api.WGA;
 import de.innovationgate.wgpublisher.RTFEncodingFormatter;
 import de.innovationgate.wgpublisher.WGACore;
 import de.innovationgate.wgpublisher.expressions.ExpressionEngineFactory;
@@ -84,33 +85,6 @@ public class Item extends FormBase implements DynamicAttributes {
 
 	public static final String OPTION_EDITOR_FIELD = SYSTEMOPTION_PREFIX + "editorField";
     
-     /**
-     * represents an Alias like options on tml:input 
-     */
-    private class Alias {
-        private String _value;
-        private String _text;
-        
-        public Alias(String text, String value) {
-            _value = value;
-            _text = text;
-        }
-
-        public String getText() {
-            return _text;
-        }
-
-        public String getValue() {
-            return _value;
-        }
-        
-    }
-    
-
-    
-
-    
-
 
 	public void tmlEndTag() throws WGException, TMLException {
 		
@@ -133,7 +107,7 @@ public class Item extends FormBase implements DynamicAttributes {
                 if (this.stringToBoolean(this.getScriptlets())) {
                     addWarning("Highlighting cannot be used with scriptlets - skipped.");                    
                 } else if (this.getAliases() != null) {
-                        addWarning("Highlighting cannot be used with aliases - skipped.");    
+                	addWarning("Highlighting cannot be used with aliases - skipped.");    
                 } else if (getXpath() != null) {
                     addWarning("Highlighting cannot be used together with xpath - skipped.");
                 } else {
@@ -170,7 +144,7 @@ public class Item extends FormBase implements DynamicAttributes {
 		
         // The item does not exist or is empty. Treat as empty list.
 		if (result == null) {
-			result = new ArrayList();;
+			result = new ArrayList();
 		}
 		
 		// Eventually execute xpath
@@ -224,65 +198,37 @@ public class Item extends FormBase implements DynamicAttributes {
 		if( attribEdit != null 
 			&& getEditor() != null
 			&& attribEdit.equals(this.getTMLContext().getcontent().getContentKey().toString()) ){
-		    buildEditor(itemName, result);
-            setResult(result);  
+			    buildEditor(itemName, result);
+	            setResult(result);  
 		}
 		else {			            
             // if aliases are defined, replace values with aliases
-            ArrayList aliasResults = new ArrayList();
-            Iterator aliases = this.retrieveAliases().iterator();
-            while (aliases.hasNext()) {
-                Alias alias = (Alias) aliases.next();
-                if (result.contains(alias.getValue()) || result.contains(alias.getText())) {
-                    aliasResults.add(alias.getText());
-                }
-            }            
-            if (aliasResults.size() > 0) {
-                this.setResult(aliasResults);
-            } else {
-                this.setResult(result);
-            }                        
+            List aliases = this.retrieveAliases();
+            if(aliases.isEmpty())
+            	this.setResult(result);
+            else {
+            	WGA wga = WGA.get();
+            	this.setResult(wga.aliases(WGUtils.toString(result), aliases));
+            }
+
 		}
 	}
-    
+
     private List retrieveAliases() throws WGAPIException {
         
-     // Fetch aliases, either directly from item (Attribute aliasesitem) or as comma-separated string (Attribute aliases)
-        String aliasesItem = getAliasesitem();
-        List rawAliasesList;
-        if (aliasesItem != null) {
-            rawAliasesList = getTMLContext().itemlist(aliasesItem);
-        }
-        else {
-            String aliases = this.getAliases();
-            if (aliases == null) {
-                return new ArrayList();
-            }
-            rawAliasesList = WGUtils.deserializeCollection(aliases, ",");
-        }
-        
-        // Process raw aliases. Divide up value and text and create aliases objects by them
-        List aliasesList = new ArrayList();
-        String token;
-        String aliasText;
-        String aliasValue;
-        Iterator options = rawAliasesList.iterator();
-        while (options.hasNext()) {
-            token = (String) options.next();
-            // Get value and text
-            int divider = token.indexOf("|");
-            if (divider != -1) {
-                aliasText = token.substring(0, divider).trim();
-                aliasValue = token.substring(divider + 1).trim();
-            }
-            else {
-                aliasText = token.trim();
-                aliasValue = token.trim();
-            }
-            aliasesList.add(new Alias(aliasText, aliasValue));
-        }
-        return aliasesList;
-    }    
+        // Fetch aliases, either directly from item (Attribute aliasesitem) or as comma-separated string (Attribute aliases)
+       String aliasesItem = getAliasesitem();
+       if (aliasesItem != null) {
+           return WGUtils.toString(getTMLContext().itemlist(aliasesItem));
+       }
+       else {
+           String aliases = this.getAliases();
+           if (aliases == null) {
+               return new ArrayList<String>();
+           }
+           return WGUtils.deserializeCollection(aliases, ",");
+       }
+    }
 
 	private void buildEditor(String itemName, List result) throws WGException {
 
@@ -292,9 +238,14 @@ public class Item extends FormBase implements DynamicAttributes {
 
 		StringBuffer prefix = createItemEditorDeclaration(itemName, editor, rawLabel);
 		
+		prefix.append("<div class=\"WGA-Item-Format\" style=\"display:none\">");
+		if(getFormat()!=null)
+			prefix.append(getFormat());
+		prefix.append("</div>");
+		
 		prefix.append("<div class=\"WGA-Item-Value\" id=\"item_"+itemName+"\">");
 		
-		// item content will be inserted here
+		// <-- item content will be inserted here between prefix and suffix
 		
 		StringBuffer suffix = new StringBuffer("</div>\n");
 		
@@ -313,6 +264,18 @@ public class Item extends FormBase implements DynamicAttributes {
                 }
             }
             suffix.append("</div>\n");
+		}
+		else if (editor.equalsIgnoreCase("date")) {
+			suffix.append("<div class=\"WGA-Item-Value-Unencoded\" style=\"display:none\" >");
+			if (result.size() > 0)
+				suffix.append(WGA.get(getTMLContext()).format(result.get(0), "dd.MM.yyyy"));
+			suffix.append("</div>\n");
+		}
+		else if (editor.equalsIgnoreCase("number")) {
+			suffix.append("<div class=\"WGA-Item-Value-Unencoded\" style=\"display:none\" >");
+			if (result.size() > 0)
+				suffix.append(WGA.get(getTMLContext()).format(result.get(0), "decimal"));
+			suffix.append("</div>\n");
 		}
 		else if (editor.equalsIgnoreCase("custom")) {
 		    suffix.append(getCustomEditorCode());

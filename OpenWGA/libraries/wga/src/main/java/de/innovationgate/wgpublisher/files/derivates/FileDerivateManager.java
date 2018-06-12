@@ -514,8 +514,8 @@ public class FileDerivateManager {
                             }
                             
                             // Determine update mode
-                            
-                            // No revision of lastr run: Complete re-init
+
+                            // No revision of last run: Complete re-init
                             if (lastRevision == null) {
                                 performInitialDerivateCreation(db, currentRun, creatorSelector);
                                 currentRun.setSomethingDone(true);
@@ -546,6 +546,7 @@ public class FileDerivateManager {
                         }
                         catch (Throwable t) {
                             LOG.error("Exception creating file derivates for database '" + db.getDbReference() + "'", t);
+                            db.closeSession();
                         }
                         
                     }
@@ -587,7 +588,7 @@ public class FileDerivateManager {
                         continue;
                     }
                     
-                    // Always store revision if actual documetns were processed
+                    // Always store revision if actual documents were processed
                     currentRun.setSomethingDone(true);
                     
                     if (docKey.getDocType() != WGDocument.TYPE_CONTENT) {
@@ -595,8 +596,7 @@ public class FileDerivateManager {
                     }
                     
                     WGContent content = (WGContent) db.getDocumentByKey(update.getDocumentKey());
-                    if (content != null) {
-                        
+                    if (content != null) {                        
                         performDerivateUpdate(content, currentRun, selector);
                     }
                 }
@@ -608,9 +608,9 @@ public class FileDerivateManager {
 
             
             boolean somethingDone = false;
-            Iterator<WGContent> contents = db.getAllContent(true);
+            Iterator<WGContent> contents = db.getAllContent(false);
             int count = 0;
-            int contentCount = db.getAllContentKeys(true).size();
+            int contentCount = db.getAllContentKeys(false).size();
             while (contents.hasNext()) {
                 WGContent content = contents.next();
                 
@@ -722,6 +722,7 @@ public class FileDerivateManager {
                         TemporaryFile  tempFile = new TemporaryFile("derivate.bin", null, WGFactory.getTempDir());
                         try {
                             OutputStream out = new BufferedOutputStream(new FileOutputStream(tempFile.getFile()));
+                            LOG.debug(creator.getClass().getName() + ": creating " + derivateInfo.getUsage() + "/" + derivateInfo.getName() + " for " + md.getName() + " in " + md.getContext().getFileParent().getDocumentKey());
                             creator.createDerivate(_wga, content, md, derivateInfo, out);
                             out.flush();
                             out.close();
@@ -1000,7 +1001,7 @@ public class FileDerivateManager {
         Runnable updateIndexRunnable = new Runnable() {
             @Override
             public void run() {
-                _core.getLog().info("Manually running update process");
+                //_core.getLog().info("Manually running update process");
                 _updateProcess.run();
                 
             }

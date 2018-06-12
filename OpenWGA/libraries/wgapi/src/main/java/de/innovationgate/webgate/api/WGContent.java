@@ -44,6 +44,7 @@ import de.innovationgate.utils.TemporaryFile;
 import de.innovationgate.utils.UIDGenerator;
 import de.innovationgate.utils.WGUtils;
 import de.innovationgate.utils.cache.CacheException;
+import de.innovationgate.webgate.api.PageRightsFilter.Right;
 import de.innovationgate.webgate.api.WGDatabase.FreeContentVersionFinder;
 import de.innovationgate.webgate.api.WGSessionContext.DocumentContext;
 import de.innovationgate.webgate.api.auth.AuthenticationModule;
@@ -239,6 +240,10 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
     public static final String VIRTUALLINKTYPE_UNIQUENAME = "intname";
     
     /**
+     * Virtual link to a document with context expression
+     */
+    public static final String VIRTUALLINKTYPE_CONTEXREXPRESSION = "exp";
+    /**
      * Virtual link to a file on another content document
      */
     public static final String VIRTUALLINKTYPE_EXTERNAL_FILE = "extfile";
@@ -279,10 +284,7 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
 	public static final String META_TITLE = "TITLE";
     public static final MetaInfo METAINFO_TITLE = new MetaInfo(META_TITLE, String.class, "");
     static { 
-    	METAINFO_TITLE.setLuceneAddToAllContent(true);
-    	METAINFO_TITLE.setLuceneBoost(2); 
     	METAINFO_TITLE.setLuceneIndexType(MetaInfo.LUCENE_INDEXTYPE_FULLTEXT);
-    	
     	METAINFO_TITLE.setInputConverter(TITLE_CONVERTER);
     	METAINFO_TITLE.setOutputConverter(TITLE_CONVERTER);    
     }
@@ -290,6 +292,7 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
     public static final String META_BROWSERTITLE = "BROWSERTITLE";
     public static final MetaInfo METAINFO_BROWSERTITLE = new MetaInfo(META_BROWSERTITLE, String.class, null);
     static {
+    	METAINFO_BROWSERTITLE.setLuceneIndexType(MetaInfo.LUCENE_INDEXTYPE_FULLTEXT);
         METAINFO_BROWSERTITLE.setExtdata(true);
         METAINFO_BROWSERTITLE.setInputConverter(TITLE_CONVERTER);
         METAINFO_BROWSERTITLE.setOutputConverter(TITLE_CONVERTER);
@@ -421,9 +424,6 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
     static { 
         METAINFO_KEYWORDS.setMultiple(true); 
         METAINFO_KEYWORDS.setLuceneIndexType(MetaInfo.LUCENE_INDEXTYPE_FULLTEXT);
-        if ("true".equals(System.getProperty(SYSPROPERTY_LUCENE_KEYWORDS_AS_CONTENT))) {
-            METAINFO_KEYWORDS.setLuceneAddToAllContent(true);
-        }
     };
     
 	public static final String META_AUTHOR = "AUTHOR";
@@ -461,8 +461,6 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
     static { 
         METAINFO_DESCRIPTION.setExtdataSinceCsVersion(WGDatabase.CSVERSION_WGA5);
         METAINFO_DESCRIPTION.setLuceneIndexType(MetaInfo.LUCENE_INDEXTYPE_FULLTEXT);
-        METAINFO_DESCRIPTION.setLuceneBoost((float)1.5);
-        METAINFO_DESCRIPTION.setLuceneAddToAllContent(true);
     };
     
 	public static final String META_READERS = "READERS";
@@ -839,8 +837,9 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
 	 * @param title
 	 * @throws WGAPIException 
 	 */
-	public void setTitle(String title) throws WGAPIException {
+	public WGContent setTitle(String title) throws WGAPIException {
 		this.setMetaData(WGContent.META_TITLE, title);
+		return this;
 	}
 	
 	/**
@@ -1555,13 +1554,62 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
 	}
     
     /**
-     * Tests if the current user is allowed to edit (i.e. save modifications) the current document
+     * Tests if the current user is allowed to edit (i.e. create or save DRAFT) the current document
+     * @throws WGAPIException 
+     */
+    public void performEditCheck() throws WGAPIException {
+
+        // Ask PageRightsFilter first end exit if ALLOWED_SKIP_DEFAULT_CHECKS
+		Right right = this.db.getPageRightsFilter().mayEditContent(getStructEntry(), this.db.getSessionContext().getUserAccess(), getLanguage());
+		if (right == Right.ALLOWED_SKIP_DEFAULT_CHECKS)
+			return;		// cancel all other tests
+		else if (right == Right.DENIED)
+			throw new WGAuthorisationException("PageRightsFilter denies to edit content in this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGERIGHTSFILTER, getLanguage());
+
+        // Check (hierarchical) editor rights from struct
+    	WGDocument document= this.getStructEntry().testEditPageHierarchyRights();
+        if (document != null) {
+        	if (document instanceof WGArea) {
+        		throw new WGAuthorisationException("User is not allowed to edit content in this area", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_AREA, document);
+        	}
+        	else {
+        		WGStructEntry entry = (WGStructEntry) document;
+        		throw new WGAuthorisationException(
+        			"User is not allowed to edit this content, because struct entry '"
+        				+ entry.getTitle()
+        				+ "' (Key "
+        				+ entry.getStructKey()
+        				+ ") disallows it", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGE, document);
+        	}
+        }
+
+        // Check edit rights from content type 
+        WGContentType contentType = getStructEntry().getContentType();
+        if (contentType != null && !contentType.mayCreateContent())
+        	throw new WGAuthorisationException("User is not allowed to edit content of this content type", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_CONTENTTYPE, contentType);
+
+        // Check edit rights from language
+        WGLanguage language = getLanguage();
+        if (language != null && !language.mayCreateContent())
+        	throw new WGAuthorisationException("User is not allowed to edit content of this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_LANGUAGE, language);
+    
+        // Check author status
+        int accessLevel = db.getSessionContext().getAccessLevel(); 
+        if (accessLevel < WGDatabase.ACCESSLEVEL_AUTHOR)
+        	throw new WGAuthorisationException("You need at last AUTHOR access to this app", WGAuthorisationException.ERRORCODE_OP_NEEDS_AUTHOR_LEVEL);
+        else if (accessLevel < WGDatabase.ACCESSLEVEL_EDITOR && !isAuthorOrOwner())
+        	throw new WGAuthorisationException("You are no author or owner of this content", WGAuthorisationException.ERRORCODE_OP_NEEDS_EDITOR_LEVEL);
+
+    }
+    
+    /**
+     * Tests if the current user is allowed to edit (i.e. create or save DRAFT) the current document
      * @throws WGAPIException 
      */
     public boolean mayEditContent() throws WGAPIException {
         
         try {
-            performSaveCheck();
+            performEditCheck();
             return true;
         }
         catch (WGAuthorisationException e) {
@@ -1581,7 +1629,7 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
         // Integrity checks. Must be done for all users (including master)
         
         if (isDummy()) {
-            throw new WGIllegalStateException("This is a dummy content that cannot be saved");
+            throw new WGIllegalStateException("This is a dummy content that cannot be edited");
         }
         
         // Check if Unique Name exists
@@ -1611,42 +1659,8 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
         // Checks only done on full content stores
         if (db.hasFeature(WGDatabase.FEATURE_FULLCONTENTFEATURES)) {
         
-            // Check (hierarchical) editor rights from struct
-            WGDocument document = this.getStructEntry().mayEditEntryAndContent();
-            if (document != null) {
-            	if (document instanceof WGArea) {
-            		throw new WGAuthorisationException("User is not allowed to edit content in this area", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_AREA, document);
-            	}
-            	else {
-            		WGStructEntry entry = (WGStructEntry) document;
-            		throw new WGAuthorisationException(
-            			"User is not allowed to edit this content, because struct entry '"
-            				+ entry.getTitle()
-            				+ "' (Key "
-            				+ entry.getStructKey()
-            				+ ") disallows it", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGE, document);
-            	}
-            }
-    
-            // Check edit rights from content type
-            WGContentType contentType = getStructEntry().getContentType();
-            if (contentType != null && !contentType.mayCreateContent()) {
-            	throw new WGAuthorisationException("User is not allowed to edit content of this content type", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_CONTENTTYPE, contentType);
-            }
-    
-            // Check edit rights from language
-            WGLanguage language = getLanguage();
-            if (language != null && !language.mayCreateContent()) {
-            	throw new WGAuthorisationException("User is not allowed to edit content of this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_LANGUAGE, language);
-            }
-        
-            // Check author status
-            if (accessLevel == WGDatabase.ACCESSLEVEL_AUTHOR) {
-            	if (!isAuthorOrOwner()) {
-            		throw new WGAuthorisationException("You are not authorized to save this document, because you are no author", WGAuthorisationException.ERRORCODE_OP_NEEDS_AUTHORING_RIGHTS);
-            	}
-            }
-            
+        	performEditCheck();
+        	
             // Check workflow status and special dependencies related to them
             if (performStatusTests) {
                 if (getStatus().equals(WGContent.STATUS_REVIEW)) {
@@ -1991,10 +2005,22 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
 	 * @throws WGAPIException 
 	 */
 	public void removeAllRelations() throws WGAPIException {
-	    Iterator names = getRelationNames().iterator();
+	    Iterator<String> names = getRelationNames().iterator();
         while (names.hasNext()) {
             String name = (String) names.next();
             removeRelation(name);
+        }
+    }
+
+	/**
+	 * Removes all incoming relations to this content from parents/sources
+	 * @throws WGAPIException 
+	 */
+	public void removeAllIncomingRelations() throws WGAPIException  {
+        for(WGRelationData rel: getIncomingRelations(true)){
+        	WGContent source = rel.getParentContent();
+        	source.removeRelation(rel.getName());
+        	source.saveQuiet();
         }
     }
 
@@ -2103,35 +2129,6 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
 	    
 	    if (db.hasFeature(WGDatabase.FEATURE_FULLCONTENTFEATURES)) {
 
-			WGDocument document = this.getStructEntry().testEditPageHierarchyRights();
-			if (document != null) {
-				if (document instanceof WGArea) {
-					throw new WGAuthorisationException("User is not allowed to delete content in this area", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_AREA, document);
-				}
-				else {
-					WGStructEntry entry = (WGStructEntry) document;
-					throw new WGAuthorisationException(
-						"User is not allowed to delete this content, because struct entry '"
-							+ entry.getTitle()
-							+ "' (Key "
-							+ entry.getStructKey()
-							+ ") disallows it", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGE, entry);
-				}
-
-			}
-
-	         // Check edit rights from content type
-			WGContentType contentType = this.getStructEntry().getContentType();
-			if (contentType != null && !contentType.mayCreateContent()) {
-				throw new WGAuthorisationException("User is not allowed to delete content of this content type", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_CONTENTTYPE, contentType);
-			}
-			
-            // Check edit rights from language
-            WGLanguage language = getLanguage();
-            if (language != null && !language.mayCreateContent()) {
-                throw new WGAuthorisationException("User is not allowed to delete content of this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_LANGUAGE, language);
-            }
-			
 			// Check restricted relations
             if (deepCheck) {
     			if (getDatabase().getContentStoreVersion() >= WGDatabase.CSVERSION_WGA5 && getDatabase().getSessionContext().isProtectedRelationsEnabled()) {
@@ -2157,6 +2154,43 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
     			    }
     			}
             }
+
+            // Ask PageRightsFilter first end exit if ALLOWED_SKIP_DEFAULT_CHECKS
+    		Right right = this.db.getPageRightsFilter().mayEditContent(getStructEntry(), this.db.getSessionContext().getUserAccess(), getLanguage());
+    		if (right == Right.ALLOWED_SKIP_DEFAULT_CHECKS)
+    			return;		// cancel all other tests
+    		else if (right == Right.DENIED)
+    			throw new WGAuthorisationException("PageRightsFilter denies to edit content in this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGERIGHTSFILTER, getLanguage());            
+            
+			WGDocument document = this.getStructEntry().testEditPageHierarchyRights();
+			if (document != null) {
+				if (document instanceof WGArea) {
+					throw new WGAuthorisationException("User is not allowed to delete content in this area", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_AREA, document);
+				}
+				else {
+					WGStructEntry entry = (WGStructEntry) document;
+					throw new WGAuthorisationException(
+						"User is not allowed to delete this content, because struct entry '"
+							+ entry.getTitle()
+							+ "' (Key "
+							+ entry.getStructKey()
+							+ ") disallows it", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_PAGE, entry);
+				}
+
+			}
+	    	
+	        // Check edit rights from content type
+			WGContentType contentType = this.getStructEntry().getContentType();
+			if (contentType != null && !contentType.mayCreateContent()) {
+				throw new WGAuthorisationException("User is not allowed to delete content of this content type", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_CONTENTTYPE, contentType);
+			}
+			
+            // Check edit rights from language
+            WGLanguage language = getLanguage();
+            if (language != null && !language.mayCreateContent(getStructEntry())) {
+                throw new WGAuthorisationException("User is not allowed to delete content of this language", WGAuthorisationException.ERRORCODE_OP_DENIED_BY_LANGUAGE, language);
+            }
+            
 		}
     }
 	
@@ -2204,27 +2238,31 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
 	        isAuthoringMode = false;
 	    }
 	    
+	    // If not released and may-not-edit author cannot use authoring mode
+	    if (!content.getStatus().equals(WGContent.STATUS_REVIEW) && !content.mayEditContent())
+	    	isAuthoringMode = false;
+	    
 	    // Tests that are bypassed by authoring mode
 	    if (!isAuthoringMode) {
 	        
-	            // Workflow status: document must be released
-	            if (!content.getStatus().equals(WGContent.STATUS_RELEASE)) {
-	                return false;
-	            }
+            // Workflow status: document must be released
+            if (!content.getStatus().equals(WGContent.STATUS_RELEASE)) {
+                return false;
+            }
 
-	            // Visible flag
-	            if (content.isVisible() == false) {
-	                return false;
-	            }
+            // Visible flag
+            if (content.isVisible() == false) {
+                return false;
+            }
 
-    	        // Valid/From to dates
-    	        Date now = new Date();
-    	        if (content.getValidFrom() != null && content.getValidFrom().after(now)) {
-    	            return false;
-    	        }
-    	        if (content.getValidTo() != null && content.getValidTo().before(now)) {
-    	            return false;
-    	        }
+	        // Valid/From to dates
+	        Date now = new Date();
+	        if (content.getValidFrom() != null && content.getValidFrom().after(now)) {
+	            return false;
+	        }
+	        if (content.getValidTo() != null && content.getValidTo().before(now)) {
+	            return false;
+	        }
 	        
 	    }
 	    
@@ -3070,6 +3108,22 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
     }
     
     /**
+     * Returns the target documents of all relations that belong to the given relation group
+     * @param group The group to query
+     * @return List of target documents
+     */
+    public String getRelationGroupnameForTarget(String group, WGContent target) throws WGAPIException  {
+        
+        for (String relName : getRelationNamesOfGroup(group)) {
+            WGContent con = getRelation(relName);
+            if (con.equals(target)) {
+                return relName;
+            }
+        }
+        return null;
+    }
+    
+    /**
      * Returns the target documents of all relations that belong to the given relation group in a given order
      * @param group The group to query
      * @param orderExpression Order expression denoting the order in which to return relations, evaluated against their target content
@@ -3139,9 +3193,14 @@ public class WGContent extends WGDocument implements PageHierarchyNode {
             throw new WGNotSupportedException("Relation groups are only supported in content stores of version 5 or higher");
         }
         
-        String relName = group + "#" + UIDGenerator.generateUID();
-        WGRelationData relation = new WGRelationData(getDatabase(), getContentKey(true), relName, target.getStructKey(), target.getLanguage().getName(), relType, group);
-        setRelation(relation); 
+        // check if relation group already exists for target
+        String relName = getRelationGroupnameForTarget(group, target);
+        if(relName==null){    
+        	// create new relation
+	        relName = group + "#" + UIDGenerator.generateUID();
+	        WGRelationData relation = new WGRelationData(getDatabase(), getContentKey(true), relName, target.getStructKey(), target.getLanguage().getName(), relType, group);
+	        setRelation(relation);
+        }
         return relName;
     }
     

@@ -2056,8 +2056,15 @@ public abstract class WGDocument implements Lockable, WGExtensionDataContainer, 
      */
     public boolean attachFile(final File file, List<WGFileAnnotator> additionalAnnotators) throws WGAPIException {
         
+        WGFileConverter converter = getDatabase().getFileConverter();
+        if(converter!=null){
+			try {
+				converter.convert(file);
+			} catch (IOException e) {}
+        }
+        
         // Run annotators
-        WGFileMetaData meta = new WGFileMetaData(this, getDatabase().convertFileNameForAttaching(file.getName()), file.length(), new Date(), new Date(), null, null, new HashMap<String, Object>());
+        WGFileMetaData meta = new WGFileMetaData(this, getDatabase().convertFileNameForAttaching(file.getName()), file.length(), new Date(), new Date(), null, null, new HashMap<String, Object>());        
         getDatabase().annotateMetadata(file, meta, additionalAnnotators);
         
         return innerAttachFile(file);
@@ -2204,49 +2211,6 @@ public abstract class WGDocument implements Lockable, WGExtensionDataContainer, 
         tempFile.deleteOnEviction(getDatabase().getSessionContext());
         return true;
         
-    }
-
-    /**
-     * Extracts a file attachment from this document
-     * if the filename contains the path separator '/' it is replaced by '§'
-     * 
-     * @param name
-     *            The name of the file attachment
-     * @param folder
-     *            The folder to extract the file to     *           
-     * @return The extracted File.
-     * @throws IOException
-     * @throws WGAPIException
-     * @deprecated 
-     */
-    public File extractFile(String name, File folder) throws IOException, WGAPIException {
-
-        if (!folder.isDirectory()) {
-            return null;
-        }
-
-        InputStream in = getFileData(name);
-        if (in == null) {
-            return null;
-        }
-
-        if (name.indexOf("/") != -1) {
-            name = name.replace('/', '§');
-        }
-        
-        File outFile = new File(folder, name);
-        outFile.getParentFile().mkdirs();
-        OutputStream out = new FileOutputStream(outFile);
-
-        byte[] buf = new byte[2048];
-        int len;
-        while ((len = in.read(buf)) != -1) {
-            out.write(buf, 0, len);
-        }
-        in.close();
-        out.close();
-        return outFile;
-
     }
 
     /**
@@ -2562,9 +2526,18 @@ public abstract class WGDocument implements Lockable, WGExtensionDataContainer, 
         
         // Push extension data fields
         if (getDatabase().getContentStoreVersion() >= WGDatabase.CSVERSION_WGA5 && doc.getDatabase().getContentStoreVersion() >= WGDatabase.CSVERSION_WGA5) {
-            // Clear all extension data
+            // Clear all extension data with exception of !mayPushExtData
+        	// See #00005182
             if (doc.getExtensionDataNames().size() > 0) {
-                doc.removeAllExtensionData();
+
+                Iterator<String> names = getExtensionDataNames().iterator();
+                while (names.hasNext()) {
+                    String name = (String) names.next();
+                    if(!mayPushExtData(name))
+                    	continue;
+                    doc.removeExtensionData(name);
+                }
+                
                 if (!doc.getDatabase().hasFeature(WGDatabase.FEATURE_DIRECT_ENTITY_READDING)) {
                     doc.save();
                 }
@@ -2575,6 +2548,8 @@ public abstract class WGDocument implements Lockable, WGExtensionDataContainer, 
             String extDataName;
             while (extDataNames.hasNext()) {
                 extDataName = (String) extDataNames.next();
+                if(!mayPushExtData(extDataName))
+                	continue;
                 try {
                     Object value = getExtensionData(extDataName);
                     if (value instanceof List) {
@@ -2590,6 +2565,15 @@ public abstract class WGDocument implements Lockable, WGExtensionDataContainer, 
         
     }
 
+    /**
+     * checks if extension data may be "pushed". Returns true per default but may be overwritten by implementations
+     * @param extName
+     * @return true
+     */
+    public boolean mayPushExtData(String extName){
+    	return true;
+    }
+    
     /**
      * @param b
      */
@@ -2758,20 +2742,6 @@ public abstract class WGDocument implements Lockable, WGExtensionDataContainer, 
             removeItem(name);
         }
     }
-    
-    /**
-     * Convenience method to remove all extension data fields from the document at once
-     * @throws WGAPIException 
-     */
-    public void removeAllExtensionData() throws WGAPIException {
-        Iterator<String> names = getExtensionDataNames().iterator();
-        while (names.hasNext()) {
-            String name = (String) names.next();
-            removeExtensionData(name);
-        }
-    }
-    
-
     
     /**
      * Sets the given dates as created and modified dates of the document and saved it with them
@@ -3262,4 +3232,40 @@ public abstract class WGDocument implements Lockable, WGExtensionDataContainer, 
         getDatabase().getSessionContext().addAutoSaveDoc(this);
     }
 
+    /*
+     * JavaScript like util methods able to be chained
+     */
+    
+    public WGDocument setItem(String name, Object value) throws WGAPIException{
+    	setItemValue(name, value);
+    	return this;
+    }
+    public WGDocument setItems(Map<String, Object> values) throws WGAPIException{
+    	for (Map.Entry<String, Object> entry : values.entrySet()){
+    		setItemValue(entry.getKey(), entry.getValue());
+    	}
+    	return this;
+    }
+
+    public WGDocument setMeta(String name, Object value) throws WGAPIException{
+    	setMetaData(name, value);
+    	return this;
+    }
+    public WGDocument setMetas(Map<String, Object> values) throws WGAPIException{
+    	for (Map.Entry<String, Object> entry : values.entrySet()){
+    		setMetaData(entry.getKey(), entry.getValue());
+    	}
+    	return this;
+    }
+    
+    public WGDocument setValues(Map<String, Object> values) throws WGAPIException{
+    	for (Map.Entry<String, Object> entry : values.entrySet()){
+    		String name = entry.getKey();
+    		if(name.equals(name.toUpperCase()))
+    			setMetaData(name, entry.getValue());
+    		else setItemValue(name, entry.getValue());
+    	}
+    	return this;
+    }
+    
 }

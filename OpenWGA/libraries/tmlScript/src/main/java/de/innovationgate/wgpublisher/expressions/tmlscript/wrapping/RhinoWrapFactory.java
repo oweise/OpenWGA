@@ -28,6 +28,8 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.servlet.ServletRequest;
+
 import org.dom4j.Node;
 
 import de.innovationgate.ext.org.mozilla.javascript.ConsString;
@@ -45,6 +47,7 @@ import de.innovationgate.wgpublisher.webtml.portlet.TMLPortlet;
 import de.innovationgate.wgpublisher.webtml.utils.TMLContext;
 import de.innovationgate.wgpublisher.webtml.utils.TMLPageImpl;
 import de.innovationgate.wgpublisher.webtml.utils.TMLUserProfile;
+import de.innovationgate.wgpublisher.webtml.utils.TagInfo;
 
 public class RhinoWrapFactory extends WrapFactory {
     
@@ -80,6 +83,33 @@ public class RhinoWrapFactory extends WrapFactory {
             @Override
             public Scriptable wrap(Object obj, Scriptable scope) {
                 return new FormWrapper(scope, (TMLForm) obj);
+            }
+            
+        });
+
+        _wrapMethods.put(ServletRequest.class, new WrapMethod<ServletRequest>() {
+
+            @Override
+            public Scriptable wrap(Object obj, Scriptable scope) {
+                return new ServletRequestWrapper(scope, (ServletRequest) obj);
+            }
+            
+        });
+
+        _wrapMethods.put(HashMap.class, new WrapMethod<HashMap>() {
+
+            @Override
+            public Scriptable wrap(Object obj, Scriptable scope) {
+                return new MapWrapper(scope, (HashMap) obj);
+            }
+            
+        });
+
+        _wrapMethods.put(TagInfo.class, new WrapMethod<TagInfo>() {
+
+            @Override
+            public Scriptable wrap(Object obj, Scriptable scope) {
+                return new TagInfoWrapper(scope, (TagInfo) obj);
             }
             
         });
@@ -180,6 +210,9 @@ public class RhinoWrapFactory extends WrapFactory {
 	    // Custom wrapping
 	    if (obj != null) {
     	    Class<?> lookupClass = (obj instanceof Date ? Date.class : obj.getClass());
+    	    if(obj instanceof ServletRequest)
+    	    	lookupClass = ServletRequest.class;
+    	    
     	    WrapMethod<? extends Object> method = _wrapMethods.get(lookupClass);
     	    if (method != null) {
     	        return method.wrap(obj, scope);

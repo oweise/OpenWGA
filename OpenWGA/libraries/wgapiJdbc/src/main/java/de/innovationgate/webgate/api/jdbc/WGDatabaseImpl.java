@@ -115,6 +115,7 @@ import de.innovationgate.webgate.api.WGContentType;
 import de.innovationgate.webgate.api.WGCreationException;
 import de.innovationgate.webgate.api.WGDatabase;
 import de.innovationgate.webgate.api.WGDatabaseCore;
+import de.innovationgate.webgate.api.WGDatabaseCoreFeaturePageSequences;
 import de.innovationgate.webgate.api.WGDatabaseCoreFeatureReturnHierarchyCount;
 import de.innovationgate.webgate.api.WGDatabaseCoreFeatureSequenceProvider;
 import de.innovationgate.webgate.api.WGDatabaseRevision;
@@ -165,7 +166,9 @@ import de.innovationgate.wga.config.Database;
 import de.innovationgate.wga.config.DatabaseServer;
 
 
-public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabaseCore, WGDatabaseCoreFeatureReturnHierarchyCount, WGDatabaseCoreFeatureSequenceProvider, AuthenticationSourceListener {
+public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabaseCore, 
+		WGDatabaseCoreFeatureReturnHierarchyCount, WGDatabaseCoreFeatureSequenceProvider, WGDatabaseCoreFeaturePageSequences, 
+		AuthenticationSourceListener {
     
     @MXBean
     public interface StatisticsMXBean extends Statistics {
@@ -1051,10 +1054,13 @@ public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabase
         Map<String,Object> params = new HashMap<String, Object>(); 
         
         String orderClause;
-        if (order != null) {
+        if (order != null && getCsVersion().getPatchLevel()>4) {
             orderClause = buildHqlPageOrderClause(order, params);
         }
         else {
+        	if (order != null && getCsVersion().getPatchLevel()<=4) {
+        		WGFactory.getLogger().warn("Order clause not allowed for CS PL < 5. Using default order.");
+        	}
             orderClause = "struct.position asc, struct.title asc, struct.key asc";
         }
         
@@ -1119,7 +1125,7 @@ public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabase
                     clauseTerm.append(".").append(columnMeta.getMetaName().toLowerCase());
                         
                     // Metas with special data structures
-                    if (loc == WGStructEntry.class && term.getName().equals(WGStructEntry.META_PUBLISHED)) {
+                    if (loc == WGStructEntry.class && term.getName().equals("PAGEPUBLISHED")) {
                         params.put("lang", contentLanguage);
                         clauseTerm.append("[:lang]");
                     }
@@ -1439,8 +1445,8 @@ public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabase
                         return id;
                     }
                 } 
-                    return Long.MIN_VALUE;                
-                }
+                return Long.MIN_VALUE;                
+            }
             else {
                 result = getSession().createQuery("select max(entry.logtime) from LogEntry as entry").list();
                 Date lcDate = null;
@@ -3138,7 +3144,7 @@ public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabase
     }
     
     public String convertFileNameForAttaching(String name) {
-        return WGUtils.strReplace(name.toLowerCase(), "§§§", "/", true);
+        return WGUtils.strReplace(name.toLowerCase(), "ï¿½ï¿½ï¿½", "/", true);
     }
 
     public void authenticationDataChanged() {
@@ -3388,7 +3394,8 @@ public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabase
                 return entry.getLogtime();
             }
             else {
-                return new Date(Long.MIN_VALUE);
+            	return null;
+                //return new Date(Long.MIN_VALUE);
             }
         }
         else {
@@ -3821,6 +3828,7 @@ public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabase
                             // Commit so we can read the file afterwards
                             commitHibernateTransaction();
                             
+                            /*
                             // Annotate the file
                             WGDocumentImpl doc = createDocumentImpl(meta.getParentcontent());
                             TemporaryFile tempFile = new TemporaryFile(meta.getName(), doc.getFileData(meta.getName()), WGFactory.getTempDir());
@@ -3836,6 +3844,7 @@ public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabase
                                 tempFile.delete();
                             }
                             commitHibernateTransaction();
+                            */
                         }
                         catch (Throwable e) {
                             log.error("Exception upgrading file", e);
@@ -4070,5 +4079,25 @@ public class WGDatabaseImpl implements WGDatabaseCore, WGPersonalisationDatabase
         return _ddlVersion >= WGDatabase.CSVERSION_WGA5 ? WGDatabaseRevision.forValue(logEntry.getLog_id()) : WGDatabaseRevision.forValue(logEntry.getLogtime());
     }
 
+	@Override
+	public WGDocumentCore getStructEntryBySequence(long seq) throws WGAPIException {
+
+		Query q = getSession().createQuery("select struct as struct from StructEntry as struct where struct.extensionData['page-sequence'].number=:seq");
+		q.setParameter("seq", (double)seq);
+		List results = q.list();
+		if (results.size() > 0) {
+			Object struct = results.get(0);
+			if(struct instanceof StructEntry)
+				return createDocumentImpl((StructEntry)struct);
+		}
+		return null;
+		
+	}
+
+	@Override
+	public void createPageSequence(WGDocumentCore struct, boolean forceCreate) throws WGAPIException, InstantiationException, IllegalAccessException{
+		if(struct instanceof WGDocumentImpl)
+			((WGDocumentImpl)struct).createPageSequence(forceCreate);
+	}
    
 }

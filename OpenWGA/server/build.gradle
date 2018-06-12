@@ -12,7 +12,9 @@ compileJava.options.encoding = 'ISO-8859-1'
 
 dependencies {
     compile project(":wga");
-    compile project(":tmlScript");
+    compile project(":tmlScript");    
+
+	compile 'org.slf4j:slf4j-log4j12:1.7.25'
     
     compileClasspath project(":wgaBuildTools");
 }
@@ -22,6 +24,12 @@ task writeVersion << {
     ant.taskdef(name:"writeVersion", classname:"de.innovationgate.ant.WriteVersionTask", classpath: configurations.compileClasspath.asPath)
     ant.writeVersion(target:"server/build/extra/WEB-INF/wgabuild.properties", version: rootProject.version)
 }
+
+task createTld << {
+    ant.taskdef(name:"Tml2Tld", classname:"de.innovationgate.ant.Tml2TldTask", classpath: configurations.compileClasspath.asPath)
+    ant.Tml2Tld(tml:"tmlTagDefinitions.xml", tld:"build/extra/WEB-INF/tlds/webtml.tld")
+}
+
 
 publishing {
     publications {
@@ -45,6 +53,10 @@ task buildPlugins(type: Copy) {
 	from (project(":plugin-afw").tasks.buildPlugin.archivePath)
 	from (project(":plugin-additional-script-langs").tasks.buildPlugin.archivePath)
 	from (project(":plugin-management").tasks.buildPlugin.archivePath)
+	from (project(":plugin-rest").tasks.buildPlugin.archivePath)
+	from (project(":plugin-cs-maintenance").tasks.buildPlugin.archivePath)
+	from (project(":plugin-app-ui-3-1").tasks.buildPlugin.archivePath)
+	from (project(":plugin-xfire-server").tasks.buildPlugin.archivePath)
    	into 'build/extra/WEB-INF/default-plugins'
 }
 buildPlugins.dependsOn project(":plugin-cm").tasks.buildPlugin
@@ -53,5 +65,9 @@ buildPlugins.dependsOn project(":plugin-afw").tasks.buildPlugin
 buildPlugins.dependsOn project(":plugin-admin").tasks.buildPlugin
 buildPlugins.dependsOn project(":plugin-additional-script-langs").tasks.buildPlugin
 buildPlugins.dependsOn project(":plugin-management").tasks.buildPlugin
+buildPlugins.dependsOn project(":plugin-rest").tasks.buildPlugin
+buildPlugins.dependsOn project(":plugin-cs-maintenance").tasks.buildPlugin
+buildPlugins.dependsOn project(":plugin-app-ui-3-1").tasks.buildPlugin
+buildPlugins.dependsOn project(":plugin-xfire-server").tasks.buildPlugin
 
-war.dependsOn writeVersion, buildPlugins
+war.dependsOn writeVersion, buildPlugins, createTld

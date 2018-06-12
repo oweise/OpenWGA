@@ -52,6 +52,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import javax.mail.internet.AddressException;
 import javax.servlet.ServletContext;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
@@ -203,8 +204,11 @@ public class WGA {
             _fetched = true;
             try {
                 if (_it.hasNext()) {
-                return WGA.this.createTMLContext(_it.next());
-            }
+                	WGContent doc = _it.next();
+                	if(doc!=null)
+                		return WGA.this.createTMLContext(doc);
+                	else return null; 
+	            }
                 else {
                     return null;
                 }
@@ -1211,6 +1215,15 @@ public class WGA {
         return scoped(str, null);
     }
 
+    public Plugin plugin() throws WGException {
+        TMLContext cx = fetchTMLContext();
+        if (cx != null) {
+        	return plugin(cx.db());
+        }
+        else {
+            throw new UnavailableResourceException("Cannot retrieve current plugin as we are outside WebTML environment");
+        }
+    }
     
     /**
      * Returns a Plugin object for any OpenWGA plugin of the given unique nam.
@@ -1496,6 +1509,23 @@ public class WGA {
     }
     
     /**
+     * creates a map. Same as createLookupTable() but naming is more intuitive.
+     * @param map
+     * @return New map
+     */
+    public Map<Object,Object> createMap(Map<Object,Object> map) {
+        return new HashMap<Object,Object>(map);
+    }
+    /**
+     * creates an empty map. Same as createLookupTable() but naming is more intuitive.
+     * @return New map
+     */
+    public Map<Object,Object> createMap() {
+        return new HashMap<Object,Object>();
+    }
+    
+    
+    /**
      * Creates a Mail object for sending e-mails.
      * This variant uses the mail configuration of the OpenWGA server.
      * @return A new Mail object
@@ -1513,7 +1543,71 @@ public class WGA {
         }
         
     }
-    
+
+    /**
+     * Creates a Mail object for sending e-mails.
+     * This variant uses the mail configuration of the OpenWGA server.
+     * @param config - a map containing config params for the mail object
+     * @return A new Mail object
+     * @throws UnsupportedEncodingException
+     * @throws UnavailableResourceException
+     */
+    public SmtpMail createMail(Map<String,Object> config) throws UnsupportedEncodingException, WGException {
+
+        WGAMailConfiguration mailConfig = getCore().getMailConfig();
+        if (mailConfig != null){
+        	SmtpMail mail = new SmtpMail(mailConfig);
+        	try{
+                
+                Boolean encodeText = (Boolean)config.get("encodeText");
+                if(encodeText!=null)
+                	mail.setEncodeText(encodeText);
+                else mail.setEncodeText(true);
+
+                String from = (String)config.get("from");
+                if(from!=null)
+                	mail.setFrom(from);
+                
+                Object to = config.get("to");
+                if(to!=null){
+		            if(to instanceof List)
+		            	mail.setTo((List<String>)to);
+		            else mail.setTo((String)to);
+                }
+                
+                Object cc = config.get("cc");
+                if(cc!=null){
+		            if(cc instanceof List)
+		            	mail.setCc((List<String>)cc);
+		            else mail.setCc((String)cc);
+                }
+                
+                Object bcc = config.get("bcc");
+                if(bcc!=null){
+		            if(bcc instanceof List)
+		            	mail.setBcc((List<String>)bcc);
+		            else mail.setBcc((String)bcc);
+                }
+                
+                if(config.get("mimeType")!=null)
+                	mail.setMimeType((String)config.get("mimeType"));
+                if(config.get("subject")!=null)
+                	mail.setSubject((String)config.get("subject"));
+                if(config.get("body")!=null)
+                	mail.setBody((String)config.get("body"));
+        	}
+        	catch(Exception e){
+        		getLog().error("Mail config error", e);
+        		return null;
+        	}
+            return mail;
+        }
+        else {
+            throw new UnavailableResourceException("No mail configuration available on this server");
+        }
+        
+    }
+
     /**
      * Creates a Mail object for sending e-mails.
      * This variant receives host, username and password of the SMTP account.
@@ -1657,6 +1751,9 @@ public class WGA {
      * @throws FormattingException
      */
     public String encode(String encoding, Object obj) throws WGException, FormattingException {
+    	return encode(encoding, obj, null);
+    }
+    public String encode(String encoding, Object obj, TMLContext ctx) throws WGException, FormattingException {
         
             List<TextChunk> chunks = new ArrayList<TextChunk>();
             chunks.add(new TextChunk(TextChunk.Origin.INPUT, "text/plain", String.valueOf(obj)));
@@ -1695,7 +1792,9 @@ public class WGA {
                 
                 // Legacy WebTML encoder, just converting a string into another string, without chunk handling. They are only fed chunks of origin INPUT.
                 if (encoder == null) {
-                    ObjectFormatter formatter = getCore().getEncodingFormatter(encoderName, (isTMLContextAvailable() ? (TMLContext) tmlcontext() : null));
+                	
+                    ObjectFormatter formatter = getCore().getEncodingFormatter(encoderName, 
+                    		(ctx!=null ? ctx : isTMLContextAvailable() ? (TMLContext) tmlcontext() : null));
                     if (formatter != null) {
                         encoder = new EncodingFormatterEncoder(formatter);
                     }
@@ -1994,7 +2093,13 @@ public class WGA {
      * @throws WGException
      */
     public Design design(String dbKey) throws WGException {
-        return new Design(this, dbKey);
+    	try{
+    		return new Design(this, dbKey);
+    	}
+    	catch(Exception e){
+    		getLog().error("Unable to determine design for dbkey '" + dbKey + "'");
+    		throw e;
+    	}
     }
     
     /**
@@ -2049,13 +2154,7 @@ public class WGA {
      * @throws WGAServerException
      */
     public App app(WGDatabase db) throws WGException {
-        PluginID id = (PluginID) db.getAttribute(WGACore.DBATTRIB_PLUGIN_ID);
-        if (id != null) {
-            return plugin(db);
-        }
-        else {
-            return new App(this, db);
-        }
+        return new App(this, db);
     }
     
     /**
@@ -2245,7 +2344,7 @@ public class WGA {
      * Returns if a WebTML/TMLScript environment is available
      */
     public boolean isTMLContextAvailable() {
-        return (!isIsolated() && fetchTMLContext() != null);
+        return (_context!=null && !isIsolated() && fetchTMLContext() != null);
     }
 
     /**
@@ -2265,7 +2364,7 @@ public class WGA {
     public Context tmlcontext() throws WGException {
         
         if (isIsolated()) {
-            throw new UnavailableResourceException("TMLContext is not available but needed for this operation");
+            throw new UnavailableResourceException("TMLContext is not available in isolated mode but needed for this operation");
         }
         
         TMLContext tmlContext = fetchTMLContext();
@@ -2277,6 +2376,22 @@ public class WGA {
         }
     }
 
+    /*
+     * More intuitive alias for tmlcontext()
+     */
+    public Context context() throws WGException{
+    	return tmlcontext();
+    }
+    public Context context(String expression) throws WGException{
+    	return tmlcontext().context(expression);
+    }
+    public Context context(String expression, boolean returnContextOnError) throws WGException{
+    	return tmlcontext().context(expression, returnContextOnError);
+    }
+    public Context context(WGContent content) throws WGException{
+    	return tmlcontext().context(content);
+    }
+    
     protected TMLContext fetchTMLContext() {
         TMLContext context = _context.getTMLContext();
         
@@ -2472,7 +2587,7 @@ public class WGA {
             return createTMLContext(db, chooser, design);
         }
         catch (WGAPIException e) {
-            throw new WGAServerException("Exception creating TMLContext");
+            throw new WGAServerException("Exception creating TMLContext", e);
         }
         
     }
@@ -2892,22 +3007,56 @@ public class WGA {
      * @return The found alias or the original string value if no alias was found
      */
     public String alias(String str, List<String> aliases) {
-       
+    	ArrayList<String> values = new ArrayList<String>();
+    	values.add(str);
+    	return this.aliases(values, aliases).get(0);
+    }
+    
+    /**
+     * Returns a list of alias for a string list
+     * The list of aliases given as parameter is expected to contain elements of value plus corresponding alias, divided by a pipe symbol: alias|value
+     * If values is null or empty the alias for an empty string is returned (if found)
+     * @param values The list of value
+     * @param aliasesStr The aliases string
+     * @return The found aliases or the original string value if no alias was found
+     */
+    public ArrayList<String> aliases(List<String> values, String aliasesStr) {
+    	return aliases(values, WGUtils.deserializeCollection(aliasesStr, ",", true));
+    }
+
+    /**
+     * Returns a list of alias for a string list
+     * The list of aliases given as parameter is expected to contain elements of value plus corresponding alias, divided by a pipe symbol: alias|value
+     * If values is null or empty the alias for an empty string is returned (if found)
+     * @param values The list of value
+     * @param aliases The list of aliases
+     * @return The found aliases or the original string value if no alias was found
+     */
+    public ArrayList<String> aliases(List<String> values, List<String> aliases) {
+    	ArrayList<String> result = new ArrayList<String>();
+    	HashMap<String,String> options = new HashMap<String,String>();
         for (String alias : aliases) {
             String optionText = alias;
             String optionValue = alias;
             int divider = alias.indexOf("|");
             if (divider != -1) {
-                optionText = alias.substring(0, divider).trim();
-                optionValue = alias.substring(divider + 1).trim();
+                optionText = alias.substring(0, divider);
+                optionValue = alias.substring(divider + 1);
             }
-            if (optionValue.equals(str)) {
-                return optionText;
-            }
+            options.put(optionValue.trim(), optionText.trim());
         }
-        
-        return str;
-       
+        if(values==null)
+        	values = new ArrayList<String>();
+        if(values.isEmpty()){
+        	values.add("");
+        }
+        for(String value: values){
+        	String alias = options.get(value);
+        	if(alias!=null)
+        		result.add(alias);
+        	else result.add(value); 
+        }
+        return result;
     }
     
     /**
@@ -3045,7 +3194,11 @@ public class WGA {
     public Nav nav(Context context) throws WGException {
         return new Nav(this, context);
     }
-    
+
+    public Nav nav(String expression) throws WGException {    	
+        return new Nav(this, tmlcontext().context(expression));
+    }
+
     protected TMLContextWrapperIterator wrapIntoTMLContextIterator(SkippingIterator<WGContent> it) {
         if (it instanceof CountReportingIterator<?>) {
             return new CountReportingTMLContextWrapperIterator(it);

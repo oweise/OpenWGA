@@ -169,12 +169,22 @@ this.mayApprove=function(){
 this.mayEditContent=function(){
 
 	reason="";
-	if(!Struct.mayEditContent())
-		return _false(Struct.getReason());
-	
-	if(!content.getLanguage().mayCreateContent())
-		return _false(label("reason.language-settings-denies-edit"));
-	
+
+	try{
+		content.performEditCheck()
+	}
+	catch(e){
+		var errorCode = e.javaException.getErrorCode ? e.javaException.getErrorCode() : "unknown";
+		var cause;
+		if(e.javaException.getCauseDocument)
+			cause = e.javaException.getCauseDocument();
+		if(cause){
+			var causeTitle = cause.getTitle ? cause.getTitle() : cause.getName ? cause.getName() : "unknown";
+			return _false(label("reason."+errorCode, [causeTitle]))
+		}
+		else return _false(label("reason."+errorCode))
+	}
+
 	// look for content in status review:
 	var contList=struct.getAllContent();
 	if(contList!=null && contList.size()>0){
@@ -183,7 +193,7 @@ this.mayEditContent=function(){
 			if(doc.getStatus()==content.STATUS_REVIEW && doc.getLanguage().getName()==content.getLanguage().getName()){
 				if(doc.getVersion() == content.getVersion()){
 					if(doc.isPendingRelease())
-						return _false(label("reason.document-pending"));
+						return this.isAuthorOrOwner() || Database.isChiefEditor() || _false(label("reason.document-pending"));
 					else return _false(label("reason.document-is-in-workflow"));
 				}
 				else {
@@ -320,7 +330,10 @@ this.getUserdefinedMetasTML=function(){
 		"content-manager:settings:default",
 		"settings:default"		
 	])
-	if(WGA.design(database).isCustomized()){
+	
+	var overlay_support = WGA.app(database).getPublisherOption("OverlaySupport")
+	
+	if(overlay_support!="none"){
 		tmls.addAll(0, WGA.createList([
 			"overlay:wga:content-manager:settings:"+this.getContentTypeName(),
 			"overlay:content-manager:settings:"+this.getContentTypeName(),
@@ -419,7 +432,7 @@ this.copyMetas = function(sourcedoc){
 
 this.copyAttachments = function(sourcedoc){
 	content.removeAllFiles();
-	content.attachAllFiles(sourcedoc);
+	content.attachAllFiles(sourcedoc, true);
 }
 
 this.copyModules = function(sourcedoc){
@@ -611,7 +624,12 @@ this.attachment = function(filename){
 			}
 		
 			try{
-				var d_rev = WGA.Core.getFileDerivateManager().getDerivateUpdateRevision(database)
+				var derivatesMode = database.getAttribute(WGA.Core.DBATTRIB_FILE_DERIVATES_ENABLED);
+				var derivatesManager = WGA.Core.getFileDerivateManager()
+				if(derivatesMode==derivatesManager.DERIVATEMODE_OFF)
+					return false;
+					
+				var d_rev = derivatesManager.getDerivateUpdateRevision(database)
 				var file_rev = file_md.getUpdateRevision()
 				//console.log("check waining for derivates", filename, d_rev, file_rev)
 				if(file_rev){

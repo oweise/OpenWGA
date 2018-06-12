@@ -58,6 +58,7 @@ import org.apache.commons.lang.ArrayUtils;
 import org.mockito.Mockito;
 
 import de.innovationgate.utils.WGUtils;
+import de.innovationgate.utils.URLBuilder;
 import de.innovationgate.webgate.api.WGFactory;
 import de.innovationgate.wgpublisher.WGACore;
 import de.innovationgate.wgpublisher.WGCookie;
@@ -286,7 +287,7 @@ public class WGAFilter implements Filter {
     public class RequestWrapper extends HttpServletRequestWrapper {
 
 
-        
+    	private String _forwardedProtocol;
 
         private Map<String,String[]> _parameters = new HashMap<>();
 		
@@ -299,7 +300,8 @@ public class WGAFilter implements Filter {
 			super(request);
 			_wrappedRequest = request;
 			_response = reponse;
-		
+			_forwardedProtocol = request.getHeader("X-Forwarded-Proto");			
+
 			String queryString = request.getQueryString();
 			// decode query string parameters with wga character encoding
 			if (queryString != null) {
@@ -333,7 +335,44 @@ public class WGAFilter implements Filter {
 			}
 
 		}
+		
+		@Override
+		public String getProtocol() {
+			if(_forwardedProtocol != null)
+				return _forwardedProtocol + "/1.0";
+			else return _wrappedRequest.getProtocol();
+		}
 
+		@Override
+		public String getScheme() {
+			if(_forwardedProtocol != null)
+				return _forwardedProtocol ;
+			else return _wrappedRequest.getScheme();
+		}
+
+		@Override
+		public int getServerPort(){
+			int port = _wrappedRequest.getServerPort();
+			String protocol = _wrappedRequest.getScheme().toLowerCase();
+			
+			if(_forwardedProtocol != null && URLBuilder.isDefaultPortForProtocol(port, protocol)){
+				// we have default port in original request: set NEW default
+				return URLBuilder.getDefaultPortForProtocol(_forwardedProtocol.toLowerCase());
+			}
+			return port;
+		}
+		
+		@Override
+		public StringBuffer getRequestURL(){
+			StringBuffer currentURL = _wrappedRequest.getRequestURL();
+			if(_forwardedProtocol != null){
+				int i = currentURL.indexOf("://");
+				if(i>0)
+					return new StringBuffer(_forwardedProtocol + "://" + currentURL.substring(i+3));
+			}
+			return new StringBuffer(currentURL);
+		}
+		
         public String getParameter(String name) {
 			copyNoneExistingParams(_wrappedRequest.getParameterMap());
 			String values[] = (String[]) _parameters.get(name);
@@ -597,11 +636,6 @@ public class WGAFilter implements Filter {
 	            response.setCharacterEncoding(_core.getCharacterEncoding());            
 	        }
 	        
-	        HttpServletRequest httpReq = (HttpServletRequest) request;
-	        request.setAttribute(REQATTRIB_ORIGINAL_URI, httpReq.getRequestURI());
-	        request.setAttribute(REQATTRIB_ORIGINAL_URL, httpReq.getRequestURL());
-	        request.setAttribute(REQATTRIB_ORIGINAL_QUERYSTRING, httpReq.getQueryString());
-	       
 	        // add/ delete jvmRoute
 	        String lbRoute = _core.getClusterService().getLBRoute();
 	        if (lbRoute != null && !lbRoute.trim().equals("")) {
@@ -610,7 +644,7 @@ public class WGAFilter implements Filter {
     	        jvmRouteCookie.setMaxAge(-1);
     	        jvmRouteCookie.addCookieHeader((HttpServletResponse)response);
 	        } else {
-	           Cookie cookie = getCookie(httpReq, COOKIE_NAME_LBROUTE);
+	           Cookie cookie = getCookie((HttpServletRequest) request, COOKIE_NAME_LBROUTE);
 	           if (cookie != null) {
 	               WGCookie jvmRouteCookie = WGCookie.from(cookie);
 	               jvmRouteCookie.setMaxAge(0);
@@ -618,7 +652,15 @@ public class WGAFilter implements Filter {
 	           }
 	        }
 	        
-	        RequestWrapper wrappedRequest = createRequestWrapper(response, httpReq);
+	        RequestWrapper wrappedRequest = createRequestWrapper(response, (HttpServletRequest) request);
+	        /*
+	         *  #00005078: don't store original URL. Store converted URL instead.
+	         *  Will be used in WGA.urlBuilder() and other sources 
+	         */	        
+	        request.setAttribute(REQATTRIB_ORIGINAL_URL, wrappedRequest.getRequestURL().toString());
+	        request.setAttribute(REQATTRIB_ORIGINAL_URI, wrappedRequest.getRequestURI());
+	        request.setAttribute(REQATTRIB_ORIGINAL_QUERYSTRING, wrappedRequest.getQueryString());
+	        
 	        FinalCharacterEncodingResponseWrapper wrappedResponse =  createResponseWrapper(response, wrappedRequest);
 	        
 	        // Probably mock request certificate
@@ -645,6 +687,7 @@ public class WGAFilter implements Filter {
 		catch (ServletException e) {
 			info.setStatusCode(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
 		    info.setStatusMessage(e.getMessage());
+		    _core.getLog().error("Internal Server Error.", e);
 		    throw e;
 		}
 		finally {
@@ -665,6 +708,8 @@ public class WGAFilter implements Filter {
 	           String uri = ((HttpServletRequest) request).getRequestURI();
 	           Problem.Vars vars = Problem
 	                   .var("reqinfo", info)
+	                   .var("completeurl", ((HttpServletRequest) request).getRequestURL().toString())
+	                   .var("host", ((HttpServletRequest) request).getServerName())
 	                   .var("uri", uri);
 	           
 	           String problemKey = "requestProblem.longRequest#" + uri;

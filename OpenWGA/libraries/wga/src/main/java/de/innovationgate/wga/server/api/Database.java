@@ -130,7 +130,52 @@ public class Database {
         
     }
     
-    
+    /**
+     * Performs a "native" query on the database without any options and parameter.
+     * This method is the WGA server API pendant to WebTML tag <tml:query> and works quite equal. The mandatory parameter "query" is equal to the contents of the query tag.
+     * The queryType for this query is taken from db attribute DBATTRIB_QUERY_DEFAULT (as in <tml:query>) - normaly "native".
+     * @param queryString The actual query to execute
+     * @throws WGException
+     */
+    public QueryResult query(String queryString) throws WGException {
+        return query(queryString, Collections.<String, Object> emptyMap());
+    }
+
+    /**
+     * Performs a "native" query on the database
+     * This method is the WGA server API pendant to WebTML tag <tml:query> and works quite equal. The mandatory parameters "queryType" and "query" are equal to attribute "type" and the contents of the query tag.
+     * The queryType for this query defaults to db attribute DBATTRIB_QUERY_DEFAULT (as in <tml:query>) - normaly "native".
+     * The map argument "options" uses the names of other <tml:query>-Attributes as keys and interprets them the same way. So filling it with an entry of key "max" and a value 100 will have the same effect as specifying attribute max="100" on a query tag. Specifying or omitting an attribute here has the same effect as it would have on <tml:query>.
+     * @param queryString The actual query to execute
+     * @param options Query options. Use <tml:query> attribute names as keys, their values as values
+     * @throws WGException
+     */
+    public QueryResult query(String queryString, Map<String,Object> options) throws WGException {
+    	Map<String,Object> params = new HashMap<String,Object>();
+    	String queryType = _db.getAttribute(WGACore.DBATTRIB_QUERY_DEFAULT).toString();
+    	Context ctx = null;
+    	if(options!=null){
+	    	for(String key: options.keySet()){
+	    		if(key.startsWith("p_")){
+	    			params.put(key.substring(2), options.get(key));
+	    			options.remove(key);
+	    		}
+	    		else if(key.equals("type")){
+	    			queryType = (String)options.get(key);
+	    			options.remove(key);
+	    		}
+	    		else if(key.equals("context")){
+	    			Object value = options.get(key);
+	    			if(value instanceof Context)
+	    				ctx = (Context)value;
+	    			else if(value instanceof String)
+	    				ctx = _wga.tmlcontext().context((String)value);
+	    			options.remove(key);
+	    		}
+	    	}
+    	}
+        return query(queryType, queryString, options, params, ctx);
+    }
 
     /**
      * Performs a query on the database
@@ -140,8 +185,7 @@ public class Database {
      * The argument "context" determines the WebTML context for which the query runs, which is important for some query types like "lucene" or "hdbmodel:*".
      * @param queryType The type of query to execute
      * @param queryString The actual query to execute
-     * @throws WGAPIException
-     * @throws WGAServerException
+     * @throws WGException
      */
     public QueryResult query(String queryType, String queryString) throws WGException {
         return query(queryType, queryString, new HashMap<String,Object>(), Collections.<String, Object> emptyMap());
@@ -155,8 +199,7 @@ public class Database {
      * @param queryType The type of query to execute
      * @param queryString The actual query to execute
      * @param atts Query attributes. Use <tml:query> attribute names as keys, their values as values
-     * @throws WGAPIException
-     * @throws WGAServerException
+     * @throws WGException
      */
     public QueryResult query(String queryType, String queryString, Map<String,Object> atts) throws WGException {
         return query(queryType, queryString, atts, Collections.<String, Object> emptyMap());
@@ -172,8 +215,7 @@ public class Database {
      * @param queryString The actual query to execute
      * @param atts Query attributes. Use <tml:query> attribute names as keys, their values as values
      * @param queryParams Query parameters. Use parameter names as keys, values as values
-     * @throws WGAPIException
-     * @throws WGAServerException
+     * @throws WGException
      */
     public QueryResult query(String queryType, String queryString, Map<String,Object> atts, Map<String,Object> queryParams) throws WGException {
         return query(queryType, queryString, atts, queryParams, null);
@@ -190,8 +232,7 @@ public class Database {
      * @param atts Query attributes. Use <tml:query> attribute names as keys, their values as values
      * @param queryParams Query parameters. Use parameter names as keys, values as values
      * @param context The WebTML context for the query.
-     * @throws WGAPIException
-     * @throws WGAServerException
+     * @throws WGException
      */
     public QueryResult query(String queryType, String queryString, Map<String,Object> atts, Map<String,Object> queryParams, Context context) throws WGException {
         
@@ -221,7 +262,7 @@ public class Database {
         if (queryType.startsWith("xp:")) {
             set = executeExpressionQuery(context, queryType, queryString, wgapiParams, outputParams);
         }
-        else if (queryType.equals("lucene")) {
+        else if (queryType.equals("lucene") || queryType.startsWith("lucene:")) {
             set = executeLuceneQuery(queryType, queryString, wgapiParams, outputParams);
         }
         else if (queryType.startsWith("hdbmodel:")) {
@@ -233,7 +274,7 @@ public class Database {
         
         // Enforce resultset limiting if the resultset does not enforce it itself
         Number maxResults = (Number) wgapiParams.get(WGDatabase.QUERYOPTION_MAXRESULTS);
-        if (maxResults != null && !set.isLimitingResultsInBackend()) {
+        if (maxResults != null && set!=null && !set.isLimitingResultsInBackend()) {
             set.limitResults(maxResults.intValue());
         }
         
@@ -422,7 +463,13 @@ public class Database {
             throw new WGQueryException(queryString, "Lucene index is disabled");
         }
         
-        WGResultSet resultSet= manager.search(_db, queryString, wgapiParams, _wga);
+        List<String> fields=new ArrayList<String>();
+        if(queryType.startsWith("lucene:")){
+        	String field_list = queryType.substring("lucene:".length());
+        	fields = WGUtils.deserializeCollection(field_list, ",");
+        }
+        
+        WGResultSet resultSet= manager.search(_db, fields, queryString, wgapiParams, _wga);
         
         outputParams.put(QUERYOUT_SIMPLIFIED_QUERY, wgapiParams.get(LuceneManager.TAGINFO_SIMPLIFIEDQUERY));
         

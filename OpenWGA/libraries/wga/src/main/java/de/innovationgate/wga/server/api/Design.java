@@ -236,11 +236,11 @@ public class Design {
     protected Design(WGA wga, WGDatabase db) throws WGException {
         _wga =wga;
         if (db == null) {
-            throw new IllegalArgumentException("Cannot determine design because database could not be retrieved");
+            throw new IllegalArgumentException("Cannot determine design because database could not be retrieved.");
         }
         
         if (!db.isSessionOpen()) {
-            throw new IllegalArgumentException("Cannot determine design because no database session is open");
+            throw new IllegalArgumentException("Cannot determine design because no database session is open: " + db.getDbReference());
         }
         
         if (_wga.isTMLContextAvailable()) {
@@ -365,6 +365,24 @@ public class Design {
      */
     public String label(String containerName, String fileName, String key, List<? extends Object> params, boolean usePlaceholder) throws WGException {
         
+    	HashMap<String,Object> config = new HashMap<String,Object>();
+    	config.put("container", containerName);
+    	config.put("file", fileName);
+    	config.put("params", params);
+    	config.put("placeholder", usePlaceholder);
+    	
+    	return label(key, config);
+    	
+    }
+    
+    /**
+     * Returns a WebTML label from the current design and accepts label parameters
+     * @param config map with keys container, file, params, placeholder, language
+     * @return Label text
+     * @throws WGException
+     */
+    public String label(String key, Map<String,Object> config) throws WGException {
+        
         if (key == null) {
             return null;
         }
@@ -372,6 +390,7 @@ public class Design {
         // Eventually get defaults for label information
         WGDatabase designDB = _designContext.getDesignDB();
         
+        String containerName = (String)config.get("container");
         if (containerName == null) {
             if (_wga.isTMLContextAvailable()) {
                 containerName = (String) _wga.tmlcontext().option(Base.OPTION_DEFAULT_LABELCONTAINER + designDB.getDbReference());
@@ -381,6 +400,7 @@ public class Design {
             }
         }
         
+        String fileName = (String)config.get("file");
         if (fileName == null) {
             if (_wga.isTMLContextAvailable()) {
                 fileName = (String) _wga.tmlcontext().option(Base.OPTION_DEFAULT_LABELFILE + designDB.getDbReference());
@@ -418,7 +438,9 @@ public class Design {
         WGAResourceBundleManager manager = _wga.getCore().getResourceBundleManager(designDB);
         
         String label = null;
-        String forceLanguage = (String) designDB.getAttribute(WGACore.DBATTRIB_FORCE_LABEL_LANGUAGE);
+        String forceLanguage = (String)config.get("language");
+        if(forceLanguage==null)
+        	forceLanguage = (String) designDB.getAttribute(WGACore.DBATTRIB_FORCE_LABEL_LANGUAGE);
         if (forceLanguage != null) {
             Locale prefLangLocale = WGLanguage.languageNameToLocale(forceLanguage);
             try {
@@ -428,13 +450,28 @@ public class Design {
                 throw new WGAServerException("Exception retrieving label " + containerRef.getResourceName() + "/" + fileName + "/" + key + " for language " + prefLangLocale.toString() + " from DB " + manager.getDb().getDbReference(), e);
             }
         }
-        else {
+        else if(_wga.isRequestAvailable()){
             LanguageBehaviour langBehaviour = LanguageBehaviourTools.retrieve(designDB);
             label = langBehaviour.webtmlFetchLabel(manager, (TMLContext) _wga.tmlcontext(), containerRef.getResourceName(), fileName, key);
         }
-     
+        else{
+            Locale prefLangLocale = WGLanguage.languageNameToLocale(designDB.getDefaultLanguage());
+            try {
+                label = LanguageBehaviourTools.fetchLabelForLanguage(manager, containerRef.getResourceName(), fileName, key, prefLangLocale);
+            }
+            catch (IOException e) {
+                throw new WGAServerException("Exception retrieving label " + containerRef.getResourceName() + "/" + fileName + "/" + key + " for language " + prefLangLocale.toString() + " from DB " + manager.getDb().getDbReference(), e);
+            }
+        	
+        }
         // If no label available we return the key prefixed with "#"
+        
+        Boolean usePlaceholder = (Boolean)config.get("placeholder");
+        if(usePlaceholder==null)
+        	usePlaceholder=true;
+        
         if (label != null) {
+        	List<Object> params = (List<Object>)config.get("params");
             return applyLabelParams(label, params);
         }
         else if (usePlaceholder) {
@@ -582,7 +619,9 @@ public class Design {
         WGAResourceBundleManager manager = _wga.getCore().getResourceBundleManager(_designContext.getDesignDB());
         
         if (container == null) {
-            container = WGAResourceBundleManager.CONTAINER_DEFAULT;
+            //container = WGAResourceBundleManager.CONTAINER_DEFAULT;
+            DesignResourceReference containerRef = resolveReference(WGAResourceBundleManager.CONTAINER_DEFAULT);
+            container = containerRef.getResourceName();
         }
         
         if (file == null) {
@@ -898,7 +937,17 @@ public class Design {
     public boolean isCustomable() throws WGException {
         if (_customizable == null) {
             WGDesignProvider designProvider = _designContext.getDesignDB().getDesignProvider();
-            PublisherOption po = getConfig().findPublisherOption(PublisherOption.OPTION_OVERLAY_SUPPORT);
+            CSConfig config = getConfig();
+            if(config==null){
+            	/*
+            	 * #00005190
+            	 * Not all content stores support csconfig.xml - e. E. Custom-Domino-Databases.
+            	 * Simply return false in this case.
+            	 */
+            	//_wga.getLog().error("Unable to find csconfig.xml for design " + _designContext.getDesignDB().getDbReference());
+            	return false;
+            }
+            PublisherOption po = config.findPublisherOption(PublisherOption.OPTION_OVERLAY_SUPPORT);
             _customizable = new Boolean(po != null && !OverlaySupport.NONE.equals(po.getValue()));
         }
         return _customizable;
@@ -1047,7 +1096,7 @@ public class Design {
             throw new WGAServerException("No CSS module under name: " + getBaseReference().toString());
         }
 
-        return getModuleCode(mod);
+        return getModuleCode(mod, true);
         
     }
     
@@ -1057,13 +1106,16 @@ public class Design {
      * @throws WGException
      */
     public String getJavaScriptCode() throws WGException {
+    	return getJavaScriptCode(true);
+    }
+    public String getJavaScriptCode(Boolean compress) throws WGException {
         
         WGScriptModule mod = getJavaScriptModule();
         if (mod == null) {
             throw new WGAServerException("No JavaScript module under name: " + getBaseReference().toString());
         }
 
-        return getModuleCode(mod);
+        return getModuleCode(mod, compress);
         
     }
     
@@ -1079,7 +1131,7 @@ public class Design {
             throw new MissingDesignResourceException("No TMLScript module under name: " + getBaseReference().toString());
         }
 
-        return getModuleCode(mod);
+        return getModuleCode(mod, true);
         
     }
     
@@ -1095,19 +1147,21 @@ public class Design {
             throw new WGAServerException("No XML module under name: " + getBaseReference().toString());
         }
 
-        return getModuleCode(mod);
+        return getModuleCode(mod, true);
         
     }
 
-    private String getModuleCode(WGScriptModule mod) throws WGException, WGAServerException {
+    private String getModuleCode(WGScriptModule mod, Boolean compress) throws WGException, WGAServerException {
         try {
             PostProcessResult result = null;
             WGPDispatcher dispatcher = _wga.getCore().getDispatcher();
-            if (dispatcher != null) {
+            if (dispatcher != null && _wga.isRequestAvailable() && _wga.isResponseAvailable()) {
                 result = dispatcher.postProcessDesignResource(
                     mod, 
-                    _wga.isRequestAvailable() ? _wga.getRequest() :  null, 
-                    _wga.isResponseAvailable() ? _wga.getResponse() : null);
+                    _wga.getRequest(), 
+                    _wga.getResponse(),
+                    compress
+                );
             }
             
             if (result != null) {
@@ -1352,33 +1406,47 @@ public class Design {
     
     private Design resolveSystemResource(String name, int docType, String codeType, boolean unqualifiedFallback) throws WGException {
         
+    	ArrayList<Design> result = resolveSystemResources(name, docType, codeType, unqualifiedFallback);
+    	if(result.size()>0)
+    		return result.get(0);
+    	else return null;
+    	
+    }
+    
+    public ArrayList<Design> resolveSystemResources(String name, int docType, String codeType, boolean unqualifiedFallback) throws WGException {
+        
+    	ArrayList<Design> result = new ArrayList<Design>();
+    	
         WGDesignDocument mod = null;
         if (isCustomable()) {
             mod =_designContext.getDesignDB().getDesignObject(docType, "overlay:wga:" + name, codeType);
+            if (mod != null) {
+                result.add(resolve(mod.getName()));
+            }
         }
         
-        if (mod == null) {
-            mod = _designContext.getDesignDB().getDesignObject(docType, "wga:" + name, codeType);
+        mod = _designContext.getDesignDB().getDesignObject(docType, "wga:" + name, codeType);
+        if (mod != null) {
+        	result.add(resolve(mod.getName()));
         }
         
-        if (mod == null && unqualifiedFallback) {
+        if (unqualifiedFallback) {
             if (isCustomable()) {
                 mod = _designContext.getDesignDB().getDesignObject(docType, "overlay:" + name, codeType);
+                if (mod != null) {
+                    result.add(resolve(mod.getName()));
+                }
             }
             
-            if (mod == null) {
-                mod = _designContext.getDesignDB().getDesignObject(docType, name, codeType);
+            mod = _designContext.getDesignDB().getDesignObject(docType, name, codeType);
+            if (mod != null) {
+                result.add(resolve(mod.getName()));
             }
         }
         
-        if (mod != null) {
-            return resolve(mod.getName());
-        }
-        else {
-            return null;
-        }
+        return result;
     }
-
+    
     /**
      * Resolves a design reference relatively to the current design
      * This method can be used to address another design resource relative to the current design context. It takes all forms of relative addressation in WebTML into account, like local and overlay references, and therefor can be used just like the design reference attributes in WebTML tags like ref of <tml:include>.
@@ -1811,12 +1879,27 @@ public class Design {
      * @throws WGException
      */
     public String fileURL(String dbKey, String containerName, String fileName) throws WGException {
-        WGAURLBuilder builder = ((TMLContext) _wga.tmlcontext()).getURLBuilder();
+
+        String resource = getBaseReference().getResourceName();
+        if (WGUtils.isEmpty(resource)) {
+            throw new WGAServerException("The design object needs to have a base reference to generate a File URL. Create a design with a base reference using the resolve() method.");
+        }
+        
+        TMLContext cx;
+        if (_wga.isTMLContextAvailable()) {
+            cx = (TMLContext) _wga.tmlcontext();
+        }
+        else {
+            cx = (TMLContext) _wga.createTMLContext(_designContext.getDesignDB());
+        }    	
+    	
+    	WGAURLBuilder builder = cx.getURLBuilder(); 
+
         if (builder instanceof WGASpecificFileURLBuilder) {
             if (dbKey == null) {
                 dbKey = getBaseReference().getDesignApp();
             }
-            return ((WGASpecificFileURLBuilder) builder).buildDesignFileURL((TMLContext) _wga.tmlcontext(), dbKey, containerName, fileName);
+            return ((WGASpecificFileURLBuilder) builder).buildDesignFileURL(cx, dbKey, containerName, fileName);
         }
         else {
             throw new WGAServerException("The URLBuilder used for this project does not support design-specific file URLs as it does not implement " + WGASpecificFileURLBuilder.class.getName() + ": " + builder.getClass().getName());
